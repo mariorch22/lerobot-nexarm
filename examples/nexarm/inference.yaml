@@ -1,0 +1,43 @@
+# uv run lerobot-rollout --config_path=examples/nexarm/inference.yaml --policy.path=YOUR_ADAPTED_CHECKPOINT
+# Use a checkpoint adapted to this setup. COM port / camera indices are placeholders.
+robot:
+  type: nexarm_follower
+  id: follower
+  calibration_dir: calibration/follower
+  port: COM19
+  baudrate: 1000000
+  use_degrees: true
+  disable_torque_on_disconnect: false
+  readback_after_write: true
+  cameras:
+    front:
+      type: opencv
+      index_or_path: 1
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: MJPG
+    wrist:
+      type: opencv
+      index_or_path: 2
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: MJPG
+strategy:
+  type: sentry
+dataset:
+  repo_id: local/rollout_nexarm_pick
+  single_task: pick up the object
+  fps: 30
+  video: true
+  push_to_hub: false
+  streaming_encoding: true
+rename_map:
+  observation.images.front: observation.images.scene
+fps: 30
+duration: 30
+task: pick up the object
+return_to_initial_position: false
+display_data: false
+play_sounds: false

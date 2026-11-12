@@ -1,0 +1,36 @@
+# From the plugin repo: uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate.yaml
+# COM ports and camera indices are PLACEHOLDERS. Find them with lerobot-find-port / lerobot-find-cameras.
+robot:
+  type: nexarm_follower
+  id: follower
+  calibration_dir: calibration/follower
+  port: COM19
+  baudrate: 1000000
+  use_degrees: true
+  disable_torque_on_disconnect: false
+  readback_after_write: true
+  cameras:
+    front:
+      type: opencv
+      index_or_path: 1
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: MJPG
+    wrist:
+      type: opencv
+      index_or_path: 2
+      width: 640
+      height: 480
+      fps: 30
+      fourcc: MJPG
+teleop:
+  type: nexarm_leader
+  id: leader
+  calibration_dir: calibration/leader
+  follower_calibration_path: calibration/follower/follower.json
+  port: COM18
+  baudrate: 1000000
+  use_degrees: true
+display_data: false
+fps: 30
