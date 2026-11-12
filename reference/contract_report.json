@@ -1,0 +1,156 @@
+{
+  "repo_id": "black-forest-labs/flux-3-action-so101",
+  "revision": "e2584b2698e3b88368854976e354af87ec9893c6",
+  "action_representation": "delta",
+  "delta_absolute_dims": [
+    -1
+  ],
+  "camera_keys": [
+    "observation.images.scene",
+    "observation.images.wrist"
+  ],
+  "normalization_stats_in_config": null,
+  "statistics": {
+    "action": {
+      "q01": [
+        -1.6519999504089355,
+        -3.234999895095825,
+        -3.1470000743865967,
+        -2.197999954223633,
+        -1.7079999446868896,
+        0.0
+      ],
+      "q99": [
+        1.7009999752044678,
+        3.486999988555908,
+        3.306999921798706,
+        2.072000026702881,
+        1.6990000009536743,
+        40.733001708984375
+      ],
+      "clip": 6.0
+    },
+    "state": {
+      "q01": [
+        -37.96900177001953,
+        -99.31600189208984,
+        -45.779998779296875,
+        22.98699951171875,
+        -68.71199798583984,
+        0.44999998807907104
+      ],
+      "q99": [
+        35.28799819946289,
+        43.07600021362305,
+        90.30799865722656,
+        95.7040023803711,
+        17.753000259399414,
+        40.32400131225586
+      ],
+      "clip": 6.0
+    }
+  },
+  "normalizer_tensors": {
+    "policy_preprocessor_step_3_flux3_observation_history_normalizer.safetensors": {
+      "action.q01": [
+        -1.6519999504089355,
+        -3.234999895095825,
+        -3.1470000743865967,
+        -2.197999954223633,
+        -1.7079999446868896,
+        0.0
+      ],
+      "action.q99": [
+        1.7009999752044678,
+        3.486999988555908,
+        3.306999921798706,
+        2.072000026702881,
+        1.6990000009536743,
+        40.733001708984375
+      ],
+      "state.q01": [
+        -37.96900177001953,
+        -99.31600189208984,
+        -45.779998779296875,
+        22.98699951171875,
+        -68.71199798583984,
+        0.44999998807907104
+      ],
+      "state.q99": [
+        35.28799819946289,
+        43.07600021362305,
+        90.30799865722656,
+        95.7040023803711,
+        17.753000259399414,
+        40.32400131225586
+      ]
+    },
+    "policy_preprocessor_step_4_flux3_action_target_normalizer.safetensors": {
+      "action.q01": [
+        -1.6519999504089355,
+        -3.234999895095825,
+        -3.1470000743865967,
+        -2.197999954223633,
+        -1.7079999446868896,
+        0.0
+      ],
+      "action.q99": [
+        1.7009999752044678,
+        3.486999988555908,
+        3.306999921798706,
+        2.072000026702881,
+        1.6990000009536743,
+        40.733001708984375
+      ]
+    },
+    "policy_postprocessor_step_0_flux3_action_history_unnormalizer.safetensors": {
+      "action.q01": [
+        -1.6519999504089355,
+        -3.234999895095825,
+        -3.1470000743865967,
+        -2.197999954223633,
+        -1.7079999446868896,
+        0.0
+      ],
+      "action.q99": [
+        1.7009999752044678,
+        3.486999988555908,
+        3.306999921798706,
+        2.072000026702881,
+        1.6990000009536743,
+        40.733001708984375
+      ]
+    }
+  },
+  "numeric_unit_inference": "indeterminate: all state quantiles are within +/-100",
+  "files": {
+    "config.json": {
+      "bytes": 2920,
+      "sha256": "f10e9a66e1448e9b4d1a87508e538b30b8a4be0232493b7b39d90eae21a11186"
+    },
+    "dataset_statistics.json": {
+      "bytes": 752,
+      "sha256": "5e87cb15798c65dd27992263231d13dcc9c845348453d99de8b6560bbf8f0c4e"
+    },
+    "policy_postprocessor.json": {
+      "bytes": 536,
+      "sha256": "becfefcda2c7116d31d83c8877b015d30dffaedbfce8fa2d854521b738b81d62"
+    },
+    "policy_postprocessor_step_0_flux3_action_history_unnormalizer.safetensors": {
+      "bytes": 184,
+      "sha256": "4f77ef797c9feff5fa6e851c68ac37723f4b3311e8b2bb71380f7f7c2883f6c4"
+    },
+    "policy_preprocessor.json": {
+      "bytes": 1574,
+      "sha256": "4c6fb125252845fe64258ce4cfac8d6f29297be77d285abf862f0b894b55ae76"
+    },
+    "policy_preprocessor_step_3_flux3_observation_history_normalizer.safetensors": {
+      "bytes": 360,
+      "sha256": "86b5d152c9df39a640248215469c97a3facf240d481ee0e3e29fd185b423e458"
+    },
+    "policy_preprocessor_step_4_flux3_action_target_normalizer.safetensors": {
+      "bytes": 184,
+      "sha256": "4f77ef797c9feff5fa6e851c68ac37723f4b3311e8b2bb71380f7f7c2883f6c4"
+    }
+  }
+}
