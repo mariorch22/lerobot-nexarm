@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77,<85"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_nexarm"
+version = "0.1.0"
+description = "Standalone NexArm leader/follower plugin for pinned upstream LeRobot"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "lerobot[core_scripts] @ git+https://github.com/huggingface/lerobot.git@2f05d8f64d62a865c368a9fdf0ba3d8423e28035",
+    "pyserial>=3.5,<4",
+]
+
+[project.optional-dependencies]
+cloud = [
+    "lerobot[flux3] @ git+https://github.com/huggingface/lerobot.git@2f05d8f64d62a865c368a9fdf0ba3d8423e28035",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+# Keep the manufacturer driver byte-for-byte identical to the reviewed source.
+exclude = ["src/lerobot_robot_nexarm/bus.py"]
