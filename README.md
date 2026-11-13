@@ -68,11 +68,54 @@ uv run --locked python scripts/teleoperate_raw.py --follower-port=COM13 --leader
 Bridge-on und Torque-on, genau wie im alten normalen Teleoperationsbetrieb.
 Es werden zuerst Follower- und Leader-Positionen gelesen, dann die unveränderte
 Schulterspiegelung und Greiferformel angewandt und Rohziele gesendet. Die zusätzliche
-Positionsabfrage nach jedem Write bleibt erhalten. Keine Kameras, keine
-Kalibrierungsdateien, kein Modell und keine Aufzeichnung. Default sind 30 Hz;
+Positionsabfrage nach jedem Write bleibt erhalten. Ohne `--camera-config` werden
+keine Kameras geöffnet. Keine Kalibrierungsdateien, kein Modell und keine
+Aufzeichnung. Default sind 30 Hz;
 optional etwa `--fps=20 --duration=10`. Strg+C beendet den Lauf, sendet den
 Bridge-Ausgangsbefehl und schließt beide Ports. Wie bei old wird beim Trennen
 kein zusätzlicher Torque-off-Befehl an den Follower geschickt.
+
+Für denselben Rohwertbetrieb **mit Kameras und Livebildern in Rerun**:
+
+```powershell
+uv run --locked python scripts/teleoperate_raw.py --follower-port=COM13 --leader-port=COM14 --camera-config=examples/nexarm/teleoperate.yaml
+```
+
+Das Skript übernimmt den Kamera-Lesepfad aus dem Herstellerfork und verwendet
+die aktuellen LeRobot-Kameras. Es liest ausschließlich `robot.cameras` aus der
+[vorhandenen YAML](examples/nexarm/teleoperate.yaml): `front` auf Index 1 und
+`wrist` auf Index 2, jeweils 640×480, 30 fps, MJPG. Indizes und Namen dort an den
+Aufbau anpassen; Kameras mit `uv run lerobot-find-cameras opencv` bestimmen.
+Die COM-Ports kommen weiterhin aus den beiden CLI-Argumenten. Kalibrierungsfelder,
+`fps` und `display_data` der YAML werden für diesen Aufruf nicht übernommen.
+
+Mit `--camera-config` öffnet sich standardmäßig der Rerun-Viewer mit Bildern
+und Gelenk-Rohwerten in Encoder-Ticks. Die nötige Rerun-Abhängigkeit ist bereits
+in `core_scripts` enthalten. Die Livebilder werden zur Entlastung der Anzeige
+als JPEG (Qualität 80) mit Zeitstempel übertragen; das verändert die Kamera-
+Einstellungen und die Motorwerte nicht. `--no-display-data` liest dieselben Kameras ohne
+Viewer; `--display-data` zeigt auch ohne Kamera-Konfiguration die Rohpositionen.
+Kamera-Warmup erfolgt vor dem Öffnen der Serial-Ports. Bei veralteten Bildern
+bleibt der Windows-Fallback auf ein frisches Bild erhalten. Strg+C oder ein
+Kamera-/Serial-Fehler schließt Ports, Kameras und Viewer. Auch dieser Aufruf
+kann den Arm bewegen und benötigt keine abgeschlossene Kalibrierung.
+
+Die **tatsächlich erreichte Teleoperationsrate** mit `--show-fps` anzeigen:
+
+```powershell
+uv run --locked python scripts/teleoperate_raw.py --follower-port=COM13 --leader-port=COM14 --camera-config=examples/nexarm/teleoperate.yaml --show-fps
+```
+
+Einmal pro Sekunde erscheint `Measured FPS` mit gemessenen Durchläufen pro
+Sekunde. `loop` ist die mittlere Zeit einschließlich der FPS-Begrenzung,
+`work` die Arbeitszeit ohne diese Wartepause; `target` ist der mit `--fps`
+eingestellte Sollwert. Beim Beenden erscheint zusätzlich `Overall FPS`.
+Die Messung umfasst Serial, Kameraabfrage und Rerun. Sie misst die komplette
+Teleoperationsschleife, nicht die unabhängige Bildrate des Kamerasensors.
+Messung und Begrenzung verwenden `perf_counter()`: Unter Python 3.12 auf
+Windows ist `monotonic()` für die Messung einzelner 30-Hz-Durchläufe zu grob.
+Für einen Vergleich kann die Anzeige mit `--no-display-data` ausgeschaltet
+oder die Kamera-Konfiguration ganz weggelassen werden.
 
 Olds angebliche Kalibrierung schrieb nur pauschal `0..4095`, Offset `2048` und
 `drive_mode=0` für alle Achsen. Für reine Rohwert-Teleoperation ist diese Datei
@@ -118,6 +161,10 @@ Kalibrierungen Teleoperation starten.
 3. Ein Sprung um mehr als 2048 Ticks zwischen Abtastungen wird als möglicher
    Encoderübergang `4095↔0` behandelt: Abbruch mit Fehlermeldung statt Wrap-Korrektur.
    Auch zu schnelle Bewegungen können diesen konservativen Abbruch auslösen.
+   Die Fehlermeldung nennt Gelenk, vorherigen/aktuellen Rohwert, Differenz und
+   beide vollständigen Messvektoren. Alle Gelenke werden überwacht; ein
+   Greifer-Ausreißer kann deshalb auch während der Basisaufnahme abbrechen.
+   Die Meldung allein beweist keinen echten Encoderübergang.
 4. Gespeicherte Datei prüfen und Richtungen manuell setzen. Torque bleibt aus;
    vor Steuerung müssen beide Geräte getrennt und neu verbunden werden.
 
@@ -253,9 +300,27 @@ F3A-Anpassung und Policy-Server sind nicht Bestandteil dieses Pakets.
   bestätigt die Controllerkommunikation; ein Timeout identifiziert die installierte
   Firmware nicht. In einer bereits aktiven Bridge ist diese Abfrage nicht verlässlich.
   Der Aufruf ist ein Hardwaretest und wird nicht vom Agenten ausgeführt.
+- **0-/4095-Ausreißer trotz erfolgreicher Antwort:** Ein menschlicher Test hat
+  ein CMD-96-Paket mit gültiger Prüfsumme, aber Werten wie -1 und 21197 gezeigt.
+  Der alte Treiber begrenzt solche Werte und kann dadurch ungültige Messungen
+  verdecken. Plugin, Rohwertskript und Diagnose verwenden deshalb
+  `ValidatedNexArmMotorsBus`: Positionsantworten müssen CMD 96, genau zwölf Bytes
+  und sechs Werte in 0..4095 enthalten. Ungültige Antworten erscheinen mit
+  Warnung und werden innerhalb der vorhandenen drei Versuche erneut angefragt.
+  Bleiben alle Versuche erfolglos, bricht das Lesen ab. Die Diagnose zeigt die
+  Zahl verworfener Positionsantworten. Es werden keine letzten Werte als Ersatz
+  verwendet. Echte Werte 0/4095 bleiben erlaubt; Wrap-Erkennung und die separate
+  Greifer-Kalibriergrenze bleiben bestehen. Die originale `bus.py` bleibt unverändert.
 - **Port busy:** Hiwonder-Tool, Arduino-Monitor und andere LeRobot-Prozesse schließen.
 - **Kamerabilder veraltet:** Der Windows-Fallback wartet per `async_read` auf ein
   neues Bild. Andere Kameraprogramme schließen und Indizes/`fourcc` prüfen.
+- **Rerun-Speicherlimit / Transportfehler:** Der Viewer hält eine begrenzte
+  Historie; das Verwerfen alter Daten am Speicherlimit ist vorgesehen. Das
+  Rohwertskript überträgt Livebilder komprimiert und zeitabhängig. Ein gRPC-
+  Transportfehler bedeutet einen Abbruch der Viewer-Verbindung; die genaue
+  Ursache ergibt sich daraus nicht. Alten Lauf mit Strg+C beenden, altes
+  Rerun-Fenster schließen und neu starten. Mit `--no-display-data` lässt sich
+  die Teleoperationsrate bei weiterhin aktiven Kameras ohne Viewer vergleichen.
 - **WSL:** Serielle USB-Geräte erst mit usbipd an WSL anbinden. USB-Kameras unter
   WSL sind unzuverlässig; die Beispiele zielen auf natives Windows mit COM-Ports.
 - **Plugin fehlt:** Installation in derselben Umgebung wie die CLI prüfen.
@@ -281,3 +346,10 @@ Motor-Einheiten, Kamera-/Prozessor-APIs und Beispielschemata erneut vergleichen.
 separat prüfen. Entscheidungen in `PORTING_NOTES.md` ergänzen. Erst danach folgt
 erneut die menschliche Abnahme: torque-off-Positionsvergleich mit Hiwonder-Tool,
 Kalibrierung/Vorzeichen, Teleoperation, zehn Episoden und Dataset-Visualizer.
+
+## Cloud-Inferenz (FLUX 3 Action auf vast.ai)
+
+`uv run cloud/deploy.py up` mietet die günstigste RTX 5090, installiert LeRobot mit
+FLUX 3 Action nach der BFL-Anleitung, lädt das SO-101-Modell und öffnet die API unter
+`http://127.0.0.1:8000`. `uv run cloud/deploy.py down` stoppt die Instanz wieder.
+Voraussetzungen, Ablauf und API stehen in [cloud/README.md](cloud/README.md).

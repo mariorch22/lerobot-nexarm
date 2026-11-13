@@ -1409,3 +1409,483 @@ Herstellerablauf im neuen Repo menschlich am Arm bestätigt. Welche vorherige
 Freigabe für spekulative Änderungen an Baudrate, Startzeiten oder Protokoll.
 Die Abnahme des normierten Plugin-Betriebs, der gemessenen Kalibrierung,
 Richtungsvorzeichen und des Recordings bleibt separat offen.
+
+### Positionslesen nach Torque-off erfolgreich
+
+Der Nutzer führte danach die Standarddiagnose auf COM13 ohne zusätzliche
+Startpause und mit unveränderten DTR/RTS-Zuständen True/True aus. Nach CMD 68 an
+und CMD 98 aus wurden drei gültige CMD-96-Antworten empfangen: zweimal
+`[2024, 3304, 1613, 2921, 1074, 1195]`, anschließend
+`[2024, 3304, 1613, 2921, 1074, 1196]`. Ergebnis **3/3**. Cleanup sendete erneut
+Torque-off und den Bridge-Ausgang. Kein Positionsziel wurde gesendet.
+
+Damit sind erfolgreiche Positionsantworten auch nach dem Torque-off-Befehl
+am aktuellen Aufbau nachgewiesen. Die frühere Vermutung, dass dieser Befehl
+generell sämtliche Positionsantworten verhindert, erklärt diesen aktuellen
+Befund nicht. Ein Torque-ACK oder eine Prüfung der tatsächlichen manuellen
+Beweglichkeit wurde weiterhin nicht gemeldet. Die Werte sind Momentaufnahmen,
+keine gemessenen Grenzen oder Nullpunkte; 1195/1196 bestätigt für diesen Lauf
+lediglich Greiferwerte am bekannten unteren Rohwertende.
+
+Nächster menschlicher Schritt ist die Follower-Kalibrierung mit explizitem
+Projektpfad und COM13. Vor ENTER am ersten Prompt muss die SO-Referenzpose am
+NexArm abgeglichen werden; die aktuelle Diagnosepose darf nicht ungeprüft als
+Nullpunkt übernommen werden. Die gepinnte SOFollower-Vorlage in
+`lerobot/src/lerobot/robots/so_follower/so_follower.py`, `_HOMING_POSITION_DIAGRAM`,
+zeigt einen senkrechten Oberarm und waagerechten Unterarm. Die Übertragung auf
+den realen NexArm sowie Handgelenk-/Basisrichtung und Vorzeichen bleiben vor Ort
+zu prüfen. Nach der Nullpunktaufnahme folgen erst die manuellen Bewegungsbereiche.
+
+### Beweglichkeit bestätigt, Abbruch wegen Greifer-Sprung während Basisaufnahme
+
+Der Nutzer korrigiert die vorherige Meldung über blockierte Gelenke: Manuelles
+Bewegen funktioniert im laufenden Kalibrierdialog. Während `shoulder_pan`
+aufgenommen wird, zeigt die Basis mindestens `min=2053, max=3465`. Am
+13.11.2026 um 16:02:44 bricht die Kalibrierung jedoch mit einer vom **gripper**
+gemeldeten Diskontinuität ab. Die bisherige Fehlermeldung enthielt die beiden
+auslösenden Greiferwerte nicht. Somit sind ein tatsächlicher Encoderübergang,
+ein einzelner unplausibler Messwert oder eine andere Abtastdiskontinuität nicht
+unterscheidbar. Kein Schluss, dass die Basis zu schnell bewegt wurde.
+
+Die vorhandene Routine überwacht wie vereinbart alle sechs Achsen. Deshalb
+kann ein anderes Gelenk als die gerade genannte Aufnahmeachse den Abbruch
+auslösen. Ein Sprung von mehr als 2048 Ticks ist innerhalb des festgelegten
+Follower-Greiferbereichs 1195..2833 nicht möglich; mindestens ein Wert wäre dann
+außerhalb dieses Bereichs. Die tatsächlichen Werte fehlen aber im Nutzerlog.
+Diese Erkenntnis rechtfertigt weder stilles Verwerfen einer Antwort noch
+Clipping, Entwrappen, einen höheren Schwellenwert oder einen Firmware-Fix.
+
+Ergänzt wurde ausschließlich die Diagnose: Der Abbruch nennt nun vorherigen und
+aktuellen Rohwert, vorzeichenbehaftete Differenz und beide vollständigen
+Sechser-Messvektoren. Vor dem Cleanup wird die laufende Statuszeile abgeschlossen.
+Die >2048-Regel, Überwachung aller Gelenke, Abbruch ohne Speichern, Torque-off-
+Kalibrierung und der Motorbus bleiben unverändert. Tests prüfen Greifersprünge
+in beiden Richtungen und den Abbruch mitten in der Basisaufnahme. Ein erneuter
+menschlicher Lauf soll bei Wiederholung die fehlenden Werte liefern; bei einem
+erneuten solchen Fehler keine weiteren kompletten Kalibrierungsversuche ohne
+Auswertung des konkreten Sprungs.
+
+Der davor angesprochene Kamera-/Readback-Timingvergleich bleibt offen. Der
+gepinnt gelesene Standard-CLI hat eine Live-Schleifenzeit und einen CycleTimer-
+Abschlussbericht; sein Code-Default ist 60 Hz, unsere YAML setzt bereits 30 Hz.
+Das separate Rohwertskript hat diese Kamera-/Timingoptionen bisher nicht. Es
+wurden weder Kameraindizes geändert noch `readback_after_write` ohne Messung
+dauerhaft ausgeschaltet. Die normale Follower-/Leader-Kalibrierung ist noch
+nicht abgeschlossen.
+
+Prüfung der erweiterten Sprungdiagnose: 85 Kalibrierungs-/Gerätetests bestanden,
+Ruff und `git diff --check` bestanden. Der Motorbus bleibt SHA-256-identisch zur
+Herstellerfassung. Die neu getesteten Grenzsprünge sind synthetische Fälle und
+keine nachträgliche Rekonstruktion des unbekannten tatsächlichen Greiferwerts.
+
+### Kamera-Teleoperation aus dem Fork übernehmen
+
+Auftrag vom 13.11.2026: Kamera-Teleoperation aus dem vorhandenen Herstellerfork
+in dieses Repo übernehmen und an den aktuellen LeRobot-Pin anpassen. Als Quelle
+dienen `hiwonder-fork/src/lerobot/scripts/lerobot_teleoperate.py`, der dortige
+NexArm-Follower und `examples/nexarm/teleoperate.yaml`. Das vorhandene
+`scripts/teleoperate_raw.py` wird dafür um optionale Kameras erweitert; so ist
+der menschlich bestätigte Rohwertbetrieb auch vor Abschluss der Kalibrierung
+mit Bildern nutzbar. Die Kalibrierungsanforderung des normalen Plugins bleibt bestehen.
+
+Umsetzungsplan/API-Abgleich:
+
+- Kamera-Konfiguration über `--camera-config` aus `robot.cameras` einer vorhandenen
+  Teleoperations-YAML lesen und gegen die gepinnten OpenCV-Dataclasses prüfen.
+  Ports und Kalibrierungsfelder dieser YAML werden im Rohwertskript nicht übernommen.
+- Kamera-Factory am Pin aus `lerobot.cameras` verwenden. Wie im Fork zuerst
+  `read_latest()`, bei veraltetem Bild `async_read(timeout_ms=2000)` aufrufen.
+- Rerun über die aktuellen Visualisierungsfunktionen anbinden. Bei angegebenen
+  Kameras die Anzeige standardmäßig aktivieren; `--no-display-data` erlaubt den
+  Betrieb ohne Viewer. Die angezeigten Gelenkwerte bleiben Encoder-Rohwerte.
+- Kameras und Viewer vor dem Öffnen der Serial-Ports vorbereiten; beim Abbruch
+  auch teilweise verbundene Kameras freigeben. Mit Kamera-/Serial-Mocks prüfen,
+  einschließlich Kameraausfall und unverändertem Motor-Mapping/Readback.
+
+Es gibt keine neue Abweichung am Motorprotokoll und keine geänderte Kamera-
+Indexzuordnung. `front=1`, `wrist=2`, 640×480/30 fps und MJPG bleiben die bereits
+freigegebenen, vom Menschen am Aufbau zu prüfenden Beispielwerte. Hardwaretests
+werden weiterhin ausschließlich von Menschen ausgeführt.
+
+Umgesetzt im bestehenden Rohwertskript und in der README dokumentiert. Die
+36 gezielten Rohwert-/Kameratests prüfen unter anderem echte YAML-Decodierung,
+frei wählbare Namen/Indizes, Rerun-Ausgabe mit Rohwerten, BGR→RGB, Windows-
+Fallback, Betrieb ohne Viewer sowie Cleanup bei Kamera-/Serial-Fehlern und
+Strg+C. Kamera-Warmup-Fehler öffnen keinen Serial-Port. Die unveränderte
+Motorbefehlsfolge einschließlich Readback wird auch mit Kameras geprüft.
+
+Abschlussprüfung: gesamte Suite **185 Tests bestanden**, Ruff-Lint und
+Formatprüfung bestanden, `git diff --check` bestanden. CLI-Hilfe ohne
+Hardwarezugriff geprüft. Der Motorbus ist weiterhin SHA-256-identisch zur
+Herstellerquelle. Die tatsächliche Kamerazuordnung und Bildrate sind noch
+am Aufbau durch einen Menschen zu prüfen.
+
+Ergänzung zur Frage nach realen FPS: Im Rohwertskript eine optionale
+`--show-fps`-Terminalanzeige ergänzen. Abgeschlossene Teleoperationsdurchläufe
+über monotone verstrichene Zeit messen, einschließlich FPS-Begrenzung, Serial,
+Kameraabfrage und Rerun; einmal pro Sekunde anzeigen und beim Beenden eine
+Gesamtrate ausgeben. Das ist die erreichte Schleifenrate, keine Messung der
+unabhängigen Sensor-Bildrate. Kein zusätzlicher Kameraread und keine Änderung
+der Motorbefehle. Mit künstlich verzögerter Kommunikation und begrenzten
+Durchläufen ohne Hardware prüfen.
+
+Umgesetzt: `Measured FPS`, mittlere `loop`-/`work`-Zeiten in Millisekunden und
+Sollrate einmal pro Sekunde; `Overall FPS` am Ende. Die Gesamtmessung endet
+vor dem Serial-/Kamera-Cleanup. Tests bestätigen 5 FPS bei einer Begrenzung
+auf 5 sowie tatsächlich 10 FPS bei 100 ms künstlicher I/O-Zeit trotz Sollrate
+30. Kurze Läufe erhalten ebenfalls den Abschlusswert. Prüfung: **190 Tests
+bestanden**, Ruff-Lint/Format und `git diff --check` bestanden. Keine Hardware
+geöffnet; die Sensor-Bildrate bleibt damit weiterhin ungemessen.
+
+Logprüfung danach: Der menschliche Lauf zeigt 25..31 gemeldete FPS bei Soll
+30, etwa 24..30 ms Arbeitszeit, Rerun-Eviction am 1-GiB-Proxy-Limit und später
+einen gRPC-Transportfehler. Zwei lokale Softwarebefunde sind reproduzierbar:
+Python 3.12.10 verwendet hier für `monotonic()` GetTickCount64 mit 0,015625 s
+Auflösung; `perf_counter()` verwendet QueryPerformanceCounter mit 0,0000001 s
+Auflösung. Außerdem setzt der gepinnte Upstream-Bildlogger `static=True` und
+komprimiert Bilder standardmäßig nicht. Zwei RGB-Bilder 640×480 erzeugen bei
+30 Hz bereits ca. 55 MB/s reine Bilddaten. Das erklärt schnellen Speicherdruck,
+beweist aber nicht die Ursache des nachfolgenden Transportabbruchs.
+
+Korrekturplan: Nur die Zeitbasis des Rohwertskripts auf `perf_counter()`
+umstellen, einschließlich FPS-Begrenzung und Gesamtrate. Den Rerun-Livepfad
+lokal im Plugin implementieren: Bilder mit JPEG-Qualität 80 auf einer expliziten
+Zeitachse als zeitabhängige Daten loggen, Gelenkwerte ebenso zeitabhängig und
+das Kamera-/Kurvenlayout erhalten. Upstream, Serial-Protokoll, Mapping und
+Readback bleiben unverändert. Regression mit grob aufgelöster simulierter
+Windows-Uhr sowie Rerun-SDK-Tests ohne Viewerstart oder Hardware ergänzen.
+Der endliche Rerun-Historienpuffer darf weiterhin alte Daten verwerfen; eine
+Behebung des konkreten Transportfehlers wird ohne erneuten Hardwarelauf nicht
+behauptet.
+
+Umgesetzt mit `RawTeleopViewer` in `src/lerobot_robot_nexarm/visualization.py`.
+Die Vorschau erhält weiterhin separate Kamerabilder und Rohwertkurven; Bilder
+und Skalare werden mit `static=False` auf `teleop_time` geloggt. JPEG betrifft
+ausschließlich die Anzeige. Die FPS-Regression simuliert eine 15,625-ms-Uhr
+neben einer präzisen Uhr und prüft korrekte 30 FPS bei 25 ms Arbeitszeit.
+Weitere Tests nutzen echte SDK-Archetypen und JPEG-Kodierung bei gemockten
+Logging-/Verbindungsfunktionen und prüfen das Cleanup nach Layoutfehlern.
+Abschluss: **195 Tests bestanden**, Ruff-Lint/Format und `git diff --check`
+bestanden. Keine Kamera, kein Serial-Port und kein Rerun-Viewer wurde geöffnet.
+
+Der folgende menschliche Lauf erreicht 493 Durchläufe in 19,78 s, also
+24,9 Hz. Die Arbeitszeit liegt meist bei 38..43 ms und damit über dem
+33,3-ms-Budget für 30 Hz; die FPS-Wartepause entfällt fast vollständig.
+Nach einem gRPC-Abbruch werden noch 29,7 Hz bei 29,3 ms Arbeit gemeldet.
+Der Nutzer bestätigt ausdrücklich, das Rerun-Fenster selbst geschlossen zu
+haben. Damit sind der Verbindungsabbruch und die Flush-Fehler beim Beenden
+erklärt; dieser Lauf belegt keinen spontanen Viewer-Absturz.
+
+Softwaremessung ohne Hardware oder Viewer: Rerun SDK 0.33.1, zwei synthetische
+RGB-Bilder 640×480 mit Zufallsinhalt, jeweils 20 Messungen nach vier Warmups,
+Rerun-Logging und Verbindung vollständig gemockt. Median für zwölf Skalare
+0,49 ms; zwei JPEG-Bilder plus zwölf Skalare 13,66 ms; reine Vorbereitung
+beider JPEG-Bilder 12,54 ms. Das weist CPU-Aufwand im synchronen Vorschaupfad
+nach. Die Zahlen sind keine Messung des echten Kamerainhalts oder der
+Transport-/Viewer-Kosten. Die Anzeigekosten am Arm sind noch über denselben
+Aufruf mit aktiven Kameras und `--no-display-data --duration=10` abzugleichen.
+Aus diesem Log werden keine weiteren Treiber- oder Timingänderungen abgeleitet.
+
+## 17. Wrist-roll-Sprung und Greiferwert außerhalb der bisherigen Annahme
+
+Der nächste menschliche Kalibrierlauf am 13.11.2026 um 16:11:08 erreicht
+`wrist_roll`. Davor wurde für `wrist_flex` 664..3150 angezeigt. Für wrist_roll
+stehen bereits 172..3960 im überwachten Bereich. Der konkrete Abbruch lautet
+2798 -> 199, Differenz -2599 Ticks. Die vollständigen Messungen sind:
+
+```text
+vorher: [1968, 3254, 2622, 3012, 2798, 1192]
+danach: [1968, 3254, 2622, 3012,  199, 1192]
+```
+
+Nur wrist_roll ändert sich zwischen diesen beiden Vektoren. Der große Sprung
+begründet den vereinbarten konservativen Abbruch, beweist mit diesen beiden
+Stützstellen aber keinen tatsächlichen Übergang direkt an 4095/0. Es wird weder
+entwrappt noch die Schwelle erhöht. Für die bisherige Kalibrierung ist ein
+zusammenhängender benutzter wrist_roll-Bereich ohne Encoderübergang erforderlich,
+der den gewählten Referenznullpunkt enthält. Kein weiterer kompletter Versuch,
+bevor die beiden folgenden Punkte getrennt geprüft sind.
+
+**Neue offene Hardwarefrage:** Der Follower-Greifer meldet in beiden Paketen
+1192. Das liegt drei Ticks unter der in AGENTS.md festgelegten Grenze 1195.
+Die derzeitige Follower-Validierung würde eine gemessene Kalibrierung mit diesem
+Minimum ebenfalls ablehnen; auch der erfasste Referenzpunkt muss im Bereich
+liegen. Ist 1192 ein wiederholt erreichter mechanischer Endpunkt/Messabweichung,
+und gilt die Herstellergrenze 1195..2833 ausschließlich für gesendete Ziele?
+Vor einer Anpassung der Kalibrierungsregeln tatsächliche ruhende und manuell
+erreichte Greiferwerte messen und mit dem Nutzer klären. Keine automatische
+Erweiterung oder Begrenzung der Messdaten auf die bisherigen Konstanten.
+
+Zur Messung erhält ausschließlich die bestehende menschliche Diagnose
+`--reads=100 --read-interval=0.2`: mehr Positionsabfragen mit expliziter Pause
+zwischen den Abfragen und abschließender Min/Max-Tabelle aller sechs Gelenke.
+Das ergibt bei schnellen Antworten rund 20 Sekunden Beobachtungszeit. Default
+bleibt drei Abfragen ohne zusätzliche Pause. Protokoll, Antworttimeout, Bridge-
+und Torque-off-Befehle bleiben unverändert. Es werden weiterhin weder CMD 97
+noch Torque-on gesendet. Die Min/Max-Werte werden nur angezeigt und weder als
+Kalibrierung gespeichert noch gefiltert. Werte ohne Positionsantwort gehen nicht
+in die Statistik ein; bekannte Firmware-Prüfsummentoleranz bleibt erhalten.
+
+Für den nächsten menschlichen Test den Arm abstützen, wrist_roll ruhig halten
+und nur den Greifer langsam ohne Kraft durch seinen benutzbaren Bereich bewegen:
+
+```powershell
+uv run --directory C:\Users\mario\robot\lerobot-nexarm --locked python scripts/diagnose_nexarm.py --port=COM13 --reads=100 --read-interval=0.2
+```
+
+Zur Auswertung genügt zunächst die abschließende Tabelle, insbesondere die
+Zeile `gripper: min=..., max=...`. Ein wirklicher gemessener Greiferbereich und
+die mechanische Richtung wurden bislang noch nicht abschließend bestätigt.
+
+Softwareprüfung der Diagnoseergänzung: 103 Diagnose-/Kalibrierungstests
+bestanden. Neue Mocks prüfen explizite Pausen zwischen Abfragen, unverändert
+angezeigte Greiferwerte unter 1195, Min/Max bei fehlenden Antworten und ungültige
+Argumente vor Portöffnung. Ruff und `git diff --check` bestanden; Motorbus-
+SHA-256 weiterhin unverändert. Es wurde kein echter Hardwareaufruf ausgeführt.
+
+### 100 Antworten, aber auffällige Randwerte im Min/Max-Ergebnis
+
+Der Nutzer liefert das Ergebnis des längeren Diagnoseaufrufs: 100/100
+Positionsabfragen beantwortet. Die Tabelle zeigt shoulder_pan 0..1963,
+shoulder_lift 3255..4095, elbow_flex 2636..4095, wrist_flex 3034..4095,
+wrist_roll 544..1411 und gripper 1191..4095. Ob außer dem Greifer andere Gelenke
+bewegt oder durch fehlende Abstützung abgesenkt wurden, ist nicht bestätigt.
+Diese Tabellenwerte dürfen noch nicht als kalibrierte mechanische Grenzen
+übernommen werden; insbesondere ist gripper=4095 außerhalb der bisherigen
+Herstellerannahme.
+
+Die beiden tatsächlich mitgelieferten letzten RX-Frames enthalten dagegen nur
+Werte innerhalb 0..4095: `[1963,3255,2636,3034,1411,1192]` bzw.
+`[1963,3255,2636,3034,1410,1192]`. Beide vollständigen Prüfsummen wurden direkt
+nachgerechnet und stimmen (0xAE bzw. 0xAF). Die auslösenden früheren 0-/4095-
+Samples samt RX-Payload fehlen im Ausschnitt.
+
+**Wichtiger Befund im unverändert übernommenen alten Treiber:**
+`bus.py:read_positions()` decodiert sechs vorzeichenbehaftete 16-Bit-Werte und
+begrenzt jeden anschließend auf 0..4095. Deshalb können negative Drahtwerte als
+0 und Werte über 4095 als 4095 in der Tabelle erscheinen. Das ist kein neu
+eingeführter Portierungsunterschied. Die vorherige Formulierung, Werte würden
+im Diagnose-Min/Max nicht gefiltert, war insofern ungenau: Die Diagnose nimmt
+keine weitere Begrenzung vor, erhält aber bereits vom Originaltreiber begrenzte
+Werte. 100/100 ist daher ein Antwortzähler, keine numerische Qualitätsprüfung.
+
+Nächster Schritt ohne erneuten Hardwarelauf: aus der vorhandenen Terminalausgabe
+ein früheres `POSITIONS` mit 0 oder 4095 und den zugehörigen vollständigen
+`RX buffer` anfordern. Daraus lässt sich unterscheiden, ob bereits der Drahtwert
+ungültig war oder der Grenzwert selbst übertragen wurde. Keine Verbreiterung
+der Greifergrenzen, kein Entwrappen und kein stilles Verwerfen von Messungen
+allein aufgrund der zusammengefassten Min/Max-Werte.
+
+Der Nutzer vermutet als Erklärung eine mechanisch mögliche volle oder mehrfache
+Umdrehung. Für wrist_roll ist damit ein Encoderübergang plausibel, aber weder
+das konkrete Gelenk noch ein Mehrturn-Datenformat sind anhand dieser Aussage
+nachgewiesen. Ein Single-Turn-Übergang 4095 -> 0 verlässt den 12-Bit-Bereich
+nicht; er überschreitet die Grenze seiner linearen Darstellung. Ob die Firmware
+stattdessen vorzeichenbehaftete Mehrturn-Werte sendet, bleibt anhand eines
+auffälligen RX-Frames zu prüfen. Diese Fälle nicht mit dem Clipping des alten
+Treibers gleichsetzen.
+
+Der freigegebene Kalibrierungsansatz unterstützt weiterhin ausschließlich einen
+zusammenhängenden verwendeten Rohbereich ohne Encoderübergang, der die gewählte
+Referenzpose einschließt. Beim Kalibrieren daher keine vollständigen Runden
+erzwingen und vor der Encodergrenze umkehren. Die Greiferwerte 1191..4095 und
+die Randwerte anderer Achsen sind durch eine mögliche wrist_roll-Umdrehung
+noch nicht erklärt. Für echte Mehrturn-Unterstützung wären zunächst unveränderte
+Drahtwerte und anschließend eine gesondert festgelegte Winkel-/Kalibrierungs-
+darstellung nötig; der Wrap-Schutz wird nicht allein aufgrund der Vermutung
+entfernt und die bisherigen Greifergrenzen werden nicht automatisch erweitert.
+
+### Gespeicherter Ruhetest vollständig ausgewertet
+
+Der Nutzer liefert einen neuen ruhenden Lauf; zusätzlich liegt dessen gesamte
+Ausgabe in `.uv-cache/positions-check.log` vor. Die Datei wurde ohne Serial-
+Zugriff direkt gelesen (UTF-16) und sämtliche 100 RX-Frames unabhängig als sechs
+vorzeichenbehaftete Little-Endian-Werte **vor dem Treiber-Clipping** decodiert.
+Alle 100 Frames haben exakt den CMD-96-Aufbau mit zwölf Payloadbytes und eine
+korrekte vollständige Prüfsumme. Keine Timeouts, keine Werte außerhalb 0..4095.
+
+Die aus den Drahtwerten berechneten Bereiche stimmen mit der Ausgabe überein:
+
+| Gelenk | Min | Max |
+| --- | ---: | ---: |
+| shoulder_pan | 2076 | 2076 |
+| shoulder_lift | 3300 | 3310 |
+| elbow_flex | 1711 | 1711 |
+| wrist_flex | 3078 | 3078 |
+| wrist_roll | 1053 | 1054 |
+| gripper | 2782 | 2784 |
+
+Damit ist in diesem Ruhetest eine stabile Kommunikation ohne die zuvor
+beobachteten Randwert-Ausreißer belegt. Eine Ursache ausschließlich bei Bewegung,
+Mehrturn-Werte oder ein Fehler unter anderen Bedingungen sind dadurch noch nicht
+nachgewiesen. Der Ruhetest misst keine mechanischen Endpunkte.
+
+Als nächsten unterscheidenden menschlichen Test nur den Greifer langsam bewegen,
+alle übrigen Gelenke abgestützt ruhig halten und denselben 100er-Lauf in
+`.uv-cache/positions-gripper.log` speichern. Die getrennte Datei erhält die
+Ruhemessung für einen direkten Vergleich. Der Agent wertet anschließend wieder
+die vollständigen Drahtwerte aus; keine neue Kalibrierung und keine Änderung
+der bisherigen Grenzwerte aus dem Ruhetest ableiten.
+
+## 18. Ungültiges erstes Positionspaket mit gültiger Prüfsumme nachgewiesen
+
+Die vollständige Datei `.uv-cache/positions-gripper.log` wurde nach dem
+menschlichen Test direkt ausgewertet. Es gibt 100 CMD-96-Antworten mit korrekten
+vollständigen Prüfsummen. Das **erste Paket** ist jedoch semantisch ungültig:
+
+```text
+ff ff ff 0e 60 01 00 ff ff cd 52 01 40 20 02 00 20 f1
+vorzeichenbehaftet: [1, -1, 21197, 16385, 544, 8192]
+alter Treiber:     [1,  0,  4095,  4095, 544, 4095]
+```
+
+Damit sind die zuvor verdächtigen 0-/4095-Anzeigen mindestens für diesen
+konkreten Datensatz durch das Begrenzen ungültiger Drahtwerte erklärt. Das ist
+kein Nachweis einer mechanischen 360-Grad-Bewegung. Warum das Gerät das Paket
+mit gültiger Prüfsumme erzeugt, ist weiter offen; weder Firmwareursache noch
+Verdrahtungsursache werden daraus behauptet. Eine bloße Prüfsummenprüfung reicht
+hier nachweislich nicht aus.
+
+Die übrigen 99 Antworten liegen innerhalb 0..4095. Der Greifer bleibt dort
+2782..2784; damit wurde kein ausreichender Greiferweg gemessen. Der Nutzer sagt,
+er habe nicht darauf geachtet, ob die Backen tatsächlich bewegt wurden. Es gibt
+somit weiterhin keinen bestätigten vollständigen Greiferbereich.
+
+Umgesetzte Korrektur vor weiteren Kalibrierungsversuchen:
+
+- Den originalen `bus.py` samt dessen Firmware-Prüfsummentoleranz unverändert
+  lassen. Ein eigener `ValidatedNexArmMotorsBus` prüft Positionsantworten vor
+  dessen Begrenzung auf passenden CMD 96, genau zwölf Payloadbytes und sechs
+  Werte innerhalb der festgelegten Hardwaredomäne 0..4095.
+- Ungültige Antworten mit Inhalt und Warnung verwerfen und zählen. Dafür die
+  bereits vorhandenen maximal drei Leseversuche und ihre Wartezeiten verwenden;
+  keine unbegrenzten Wiederholungen, kein Ersatz durch zwischengespeicherte oder
+  erfundene Positionen. Nach drei erfolglosen Versuchen bleibt es beim Fehler.
+- Follower, Leader, Rohwert-Teleoperation und Diagnose an diese Prüfung anbinden.
+  Dies ist eine offen dokumentierte Eingangsvalidierung aufgrund eines konkreten
+  fehlerhaften Frames, keine Änderung von Frames, Torque-/Bridge-Befehlen,
+  Baudrate oder gültigen Gelenkwerten.
+- 0 und 4095 selbst bleiben erlaubt. Werte wie gripper=1191/1192 werden nicht
+  verworfen, weil sie innerhalb der 12-Bit-Domäne liegen. Die separate Frage der
+  Greifer-Kalibriergrenzen bleibt unverändert offen; echte Wrap-Sprünge zwischen
+  gültigen Werten bleiben vom Kalibrierungswächter erfasst.
+- Den exakten geloggten Frame als Regression verwenden, einschließlich der
+  folgenden gültigen Antwort, dauernd ungültiger Antworten, Grenzwerten und der
+  bekannten kurzen Leader-Prüfsumme. Echte Serial-Ports bleiben in Tests gesperrt.
+
+Die Prüfung liegt in `validated_bus.py` vor der alten Begrenzung in `_send`.
+Follower und Leader sowie die beiden menschlichen Rohwert-/Diagnoseskripte
+verwenden diesen abgeleiteten Bus. Die Diagnose gibt zusätzlich
+`Rejected invalid position replies: N` aus. Jeder ungültige Datensatz erzeugt
+eine Warnung mit Original-Payload; er wird nicht still entfernt. Dauerhaft
+ungültige Antworten enden nach den vorhandenen drei Versuchen im Lesefehler.
+
+Softwareprüfung: vollständige aktuelle Suite **205 bestanden**. Der exakte
+geloggte fehlerhafte Frame wird vor dem Begrenzen verworfen, die nachfolgende
+gültige Antwort unverändert zurückgegeben und eine einzelne Zurückweisung
+gezählt. Weitere Regressionen decken drei ungültige Antworten, falschen CMD,
+falsche Länge, erlaubte Randwerte und kurze Leader-Prüfsummen ab. Die Diagnose-
+Statistik enthält das verworfene Paket nicht mehr. Ruff und `git diff --check`
+bestanden. `bus.py` bleibt SHA-256
+`d53a53ba1f61fa9584b203e25c30227a184a4de011b64d2ad4e0441b1c155b40`.
+
+Diese Korrektur beseitigt die nachgewiesene Übernahme dieses ungültigen Pakets,
+nicht die unbekannte Ursache im Gerät. Sie bestätigt noch keinen vollständigen
+Greiferweg und keine fertige Kalibrierung. Der Nutzer hat die sichtbare Bewegung
+der Backen im Messlauf nicht beobachtet; eine gezielte Greifermessung mit
+beobachteter Öffnung/Schließung bleibt der nächste menschliche Schritt.
+
+## 19. Cloud bridge
+
+Die am 13.11.2026 korrigierte `../CLOUD_BRIDGE.md` erweitert den bisherigen
+Auftrag ausdrücklich um eine synchrone F3A-Cloud-Brücke. Alle neuen Module
+kommen nach `scripts/cloud/`; das separate inference-Grundgerüst und vastai
+bleiben Referenzen. Keine echten Vast-Instanzen starten/stoppen/löschen, keine
+echten SSH-Verbindungen und keine Hardwaretests durch den Agenten. Die
+Protokoll-, Kalibrierungs- und Normierungsregeln des Plugins bleiben bestehen.
+
+Plan vor Implementierung:
+
+1. Gemeinsame, begrenzte JSON-Schemas und JPEG-Konvertierung; HTTP-Server nur
+   auf 127.0.0.1:8000 mit `/health`, `/predict`, Lade-/Warmupstatus und GPU-Lock.
+   Mockmodus ohne Modell-/CUDA-Import. GPU-Imports ausschließlich im Real-Backend.
+2. F3A mit lokalen SO-101-/Encoderpfaden laden, optional lokaler PEFT-Adapter und
+   Text-Encoder-Offload; Policy und gekoppelte Prozessoren je Anfrage zurücksetzen,
+   vollständigen Chunk vorhersagen, postprocessen und 32 absolute Aktionen liefern.
+3. Laptop-Client mit bestehendem normiertem Follower, explizit scene/wrist,
+   standardmäßig dry-run, 5-s-Timeout, Sprungprüfung gegen frisch gemessenen
+   Zustand, 30-Hz-Ausführung, letzter tatsächlich gesendeter Aktion als Anker,
+   Laufzeitlimit, JSONL und optionaler Aufzeichnung ausgeführter Aktionen.
+   Fehlende Kalibrierung vor dem Connect melden; kein Rohwert-Bypass für F3A.
+4. Vast-Sitzungsskripte mit expliziter .env, SDK, direktem SSH-Endpunkt oder Proxy,
+   tmux, Hintergrundtunnel und Health-Polling; saubere Stop-/Destroy-Trennung.
+   Nur die menschlich ausgeführten Skripte dürfen reale Cloud-Aktionen auslösen.
+5. Schema-, Bild-, API-/Client- und Sitzungstests mit Mock-Modell, Fake-Follower,
+   Fake-SDK und Fake-SSH; zusätzlich separater realer GPU-Äquivalenztest für Chunk
+   versus 32 sequenzielle select_action-Aufrufe. Doku und Beispiele fertigstellen.
+
+Verifizierte Semantik am unveränderten LeRobot-Pin
+`2f05d8f64d62a865c368a9fdf0ba3d8423e28035`:
+
+- `ActionHistoryUnnormalizerProcessorStep.action()` unterstützt `(B,T,6)`.
+  Die fünf Delta-Kanäle werden per `cumsum(1) + output_anchor` integriert; der
+  Greiferkanal `-1` bleibt absolut. Kein eigener Integrator in unserer Brücke.
+- `ObservationHistoryNormalizerProcessorStep` setzt `output_anchor` auf die
+  letzte vorausgehende absolute Aktion aus `observation.command_history`.
+  Im Offlinepfad verlangt es genau `(B,n_obs_steps,6)`, passende Zustände und
+  Bilder. Der Online-Bootstrap wiederholt bei Episodenbeginn den ersten Zustand.
+- Die kleine config.json von SO-101-Revision
+  `c9e13b2aca6a0a472b3ea03fd90cff32d3e85849` wurde über den bestehenden HF-Zugang
+  ohne Gewichte nach `.uv-cache/f3a-contract-c9` geladen und geprüft:
+  **n_obs_steps=8**, chunk_size=42, n_action_steps=32, fps=30, conditioning=history,
+  condition_on_past_actions=true, action_representation=delta, absolute_dims=[-1],
+  Kameras scene/wrist. Auch die ältere lokale e258-Revision erwartet acht Schritte.
+- Deshalb reicht die in der MD skizzierte einzelne Beobachtung mit einem
+  Vorgängerbefehl für diesen konkreten Checkpoint nicht. Rückwärtskompatible
+  Erweiterung um optionale vollständige `history`: der Client sendet acht
+  Bild-/Zustands-/Vorgängerbefehl-Sätze, gesammelt während der Steuerung.
+  Nur beim Episodenstart darf der erste Satz wie im Upstream-Bootstrap wiederholt
+  werden. Folgeanfragen ohne erforderliche Historie scheitern verständlich;
+  keine still wiederholten Einzelbilder als vorgetäuschte Bewegungshistorie.
+- Für den GPU-Vergleich muss die sequenzielle Seite den Postprocessor nach jeder
+  Aktion aktualisieren. Ein erneutes Einspeisen desselben expliziten Ankers pro
+  Einzelschritt wäre kein äquivalenter Test, weil es die Integration zurücksetzt.
+
+Die weiterhin fehlende vollständige Kalibrierung samt Referenzpose, Richtungen
+und Greiferbereich blockiert später echte Modellbewegungen, nicht die Erstellung
+und Offline-Prüfung der API. Der GPU-Rauch-/Äquivalenztest bleibt menschliche
+Abnahme; die lokale Entwicklungsmaschine lädt keine F3A-Gewichte.
+
+## 20. Cloud-Inferenz liegt jetzt in `cloud/` (13.11.2026)
+
+Auf Wunsch des Nutzers ersetzt eine schlanke Fassung im Plugin-Repo das separate
+`../inference`-Projekt: `cloud/deploy.py` (Laptop), `cloud/setup_remote.sh` und
+`cloud/server.py` (Instanz). Das weicht vom Ablageort `scripts/cloud/` aus
+`../CLOUD_BRIDGE.md` ab; `../inference` bleibt unverändert liegen und kann gelöscht werden.
+
+- `deploy.py up` mietet automatisch die günstigste RTX 5090 (Preisgrenze `--max-price`,
+  Standard 1 $/h), richtet sie ein und hält den SSH-Tunnel offen. Das eigene Gerät wird
+  am Label `nexarm-f3a` erkannt; es gibt keine lokale Zustandsdatei mehr.
+- `setup_remote.sh` folgt der BFL-Anleitung „SO-101 with LeRobot“ (Torch 2.11 cu128,
+  `.[training,flux3,peft,diffusion]`, NATTEN, `hf download` beider Pakete an den dort
+  genannten Revisionen), aber am Projekt-Pin statt auf `main`.
+- `server.py` lädt Policy und gespeicherte Prozessoren wie in `docs/source/flux3.mdx`,
+  setzt sie je Anfrage zurück und ruft `predict_action_chunk` auf. Anfrage: `task` und
+  1 bis 8 `frames`; fehlende Historie wird durch Wiederholen des ältesten Frames ergänzt.
+- Bewusst gestrichen gegenüber `../inference`: Jobjournal und Prozesssperre,
+  Abgleich unklarer Mietantworten, reproduzierbares Quellarchiv, GPU-Lockfile,
+  Chunk-gegen-sequenziell-Vergleich, Mietpläne, Revisionsprüfung in `/health`,
+  strenge Wertebereichsprüfung der Anfrage, automatisches Stoppen bei Fehlern.
+  Nach einem Fehler läuft die Instanz weiter; das Skript sagt das und nennt `down`.
+- Geprüft ohne GPU und ohne Cloud: Angebotswahl, SSH-Endpunkt, Bilddekodierung,
+  Historie und Mock-Server (`tests/test_cloud.py`). **Nicht geprüft:** echte Miete,
+  Installation auf der Instanz und der Lauf mit dem echten Modell. Der Client am Arm
+  (`client.py` aus `CLOUD_BRIDGE.md`) existiert noch nicht.
+
+## 21. Versehentliche Zusammenführung zurückgenommen (13.11.2026)
+
+Ein zweiter Agent hatte zwischenzeitlich das komplette `../inference`-Paket nach
+`cloud/` kopiert und die schlanken Einstiege zu Weiterleitungen gemacht. Das war
+nicht beabsichtigt. Auf Anweisung des Nutzers gilt wieder Abschnitt 20: `cloud/`
+enthält nur `deploy.py`, `setup_remote.sh`, `server.py`, README und `.env.example`.
+Die große Fassung liegt weiterhin committet in `../inference`.

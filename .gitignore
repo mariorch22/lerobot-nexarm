@@ -11,3 +11,10 @@ outputs/
 calibration/
 reference/flux3-so101/
 reference/vendor-firmware/
+cloud/.env
+cloud/.known_hosts
+cloud/.venv*/
+cloud/outputs/
+cloud/models/
+cloud/.env.*
+!cloud/.env.example
