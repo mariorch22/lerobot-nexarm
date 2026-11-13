@@ -186,3 +186,97 @@ def test_invalid_controller_probe_delay_does_not_open_port(diagnostics, monkeypa
     monkeypatch.setattr(diagnostics.TracingBus, "connect", forbid_open)
     with pytest.raises(ValueError, match="startup_wait"):
         diagnostics.probe_controller("MOCK", startup_wait=delay)
+
+
+def test_longer_range_diagnosis_reports_unclipped_gripper_extrema_without_targets(
+    diagnostics, serial_mock, monkeypatch, capsys
+):
+    samples = iter([[2000, 2100, 2200, 2300, 2400, 1192], [2000, 2100, 2200, 2300, 199, 2833]])
+    events = []
+    original_write = serial_mock.write
+
+    def write(frame):
+        events.append(("tx", frame[4]))
+        if frame[4] == 96:
+            serial_mock.positions = next(samples)
+        return original_write(frame)
+
+    monkeypatch.setattr(serial_mock, "write", write)
+    monkeypatch.setattr(diagnostics.time, "sleep", lambda delay: events.append(("sleep", delay)))
+    assert diagnostics.diagnose("MOCK", reads=2, read_interval=0.2)
+    read_indices = [i for i, event in enumerate(events) if event == ("tx", 96)]
+    assert events[read_indices[0] + 1 : read_indices[1]] == [("sleep", 0.2)]
+    assert events.count(("sleep", 0.2)) == 1
+    output = capsys.readouterr().out
+    assert "Observed raw min/max (not a calibration):" in output
+    assert "wrist_roll: min=199, max=2400" in output
+    assert "gripper: min=1192, max=2833" in output
+    assert all(command != 97 for command, _ in serial_mock.commands())
+    assert all(arg == b"\x00" for command, arg in serial_mock.commands() if command == 98)
+    assert not serial_mock.is_open
+
+
+def test_observed_ranges_exclude_reads_without_a_reply(diagnostics, serial_mock, monkeypatch, capsys):
+    original_write = serial_mock.write
+    reads = 0
+
+    def write(frame):
+        nonlocal reads
+        if frame[4] == 96:
+            reads += 1
+            serial_mock.drop_replies = reads > 1
+        return original_write(frame)
+
+    monkeypatch.setattr(serial_mock, "write", write)
+    assert diagnostics.diagnose("MOCK", reads=2)
+    output = capsys.readouterr().out
+    assert "Result: 1/2 reads returned positions." in output
+    assert "gripper: min=2048, max=2048" in output
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"reads": 0},
+        {"reads": 601},
+        {"reads": True},
+        {"read_interval": -1},
+        {"read_interval": 6},
+        {"read_interval": float("nan")},
+        {"read_interval": float("inf")},
+    ],
+)
+def test_invalid_range_monitor_arguments_fail_before_port_open(diagnostics, monkeypatch, kwargs):
+    def forbid_open(*args, **kwargs):
+        raise AssertionError("Port must not be opened for invalid arguments")
+
+    monkeypatch.setattr(diagnostics.TracingBus, "connect", forbid_open)
+    with pytest.raises(ValueError):
+        diagnostics.diagnose("MOCK", **kwargs)
+
+
+def test_diagnosis_does_not_include_captured_corrupt_reply_in_ranges(
+    diagnostics, serial_mock, monkeypatch, capsys
+):
+    original_write = serial_mock.write
+    reads = 0
+
+    def write(frame):
+        nonlocal reads
+        result = original_write(frame)
+        if frame[4] == 96:
+            reads += 1
+            if reads == 1:
+                serial_mock.buffer.clear()
+                serial_mock.buffer.extend(
+                    bytes.fromhex("ff ff ff 0e 60 01 00 ff ff cd 52 01 40 20 02 00 20 f1")
+                )
+        return result
+
+    monkeypatch.setattr(serial_mock, "write", write)
+    assert diagnostics.diagnose("MOCK", reads=1)
+    output = capsys.readouterr().out
+    assert "Rejected invalid position replies: 1" in output
+    assert "gripper: min=2048, max=2048" in output
+    assert "shoulder_lift: min=2000, max=2000" in output
+    assert reads == 2

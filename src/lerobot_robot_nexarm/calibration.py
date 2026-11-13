@@ -149,7 +149,11 @@ class RangeRecorder:
             if abs(positions[i] - self.previous[i]) > 2048:
                 raise CalibrationError(
                     f"{name}: apparent encoder transition 4095 <-> 0 (or sampling discontinuity). "
-                    "Calibration aborted; use a non-wrapping range and move slowly."
+                    f"Previous raw={self.previous[i]}, current raw={positions[i]}, "
+                    f"delta={positions[i] - self.previous[i]:+d} ticks (limit=2048). "
+                    f"Previous sample={self.previous}; current sample={list(positions)}. "
+                    "Calibration aborted before saving; all six joints are monitored. "
+                    "Check the reported joint and position replies before retrying."
                 )
             self.minimum[i] = min(self.minimum[i], positions[i])
             self.maximum[i] = max(self.maximum[i], positions[i])
@@ -184,7 +188,11 @@ def record_calibration(
         print(f"Recording {name} (all joints monitored). Move by hand; press ENTER to finish this joint.")
         next_display = 0.0
         while True:
-            recorder.update(bus.read_positions())
+            try:
+                recorder.update(bus.read_positions())
+            except (CalibrationError, TimeoutError):
+                print(flush=True)  # Finish the live status line before disconnect/error logs.
+                raise
             now = time.monotonic()
             if now >= next_display:
                 print(

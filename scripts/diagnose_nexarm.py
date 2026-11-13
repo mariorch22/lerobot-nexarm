@@ -8,12 +8,13 @@ import time
 import serial
 
 from lerobot_robot_nexarm import NexArmFollower, NexArmFollowerConfig
-from lerobot_robot_nexarm.bus import SYSTEM_ID, NexArmMotorsBus, build_frame
+from lerobot_robot_nexarm.bus import JOINT_NAMES, SYSTEM_ID, build_frame
+from lerobot_robot_nexarm.validated_bus import ValidatedNexArmMotorsBus
 
 CMD_FIRMWARE_VERSION = 1
 
 
-class TracingBus(NexArmMotorsBus):
+class TracingBus(ValidatedNexArmMotorsBus):
     """Keep original frames/parser/timeouts; optional diagnostic probes are explicit."""
 
     startup_wait = 0.0
@@ -86,9 +87,14 @@ def diagnose(
     startup_wait: float = 0.0,
     probe_before_torque_off: bool = False,
     inactive_control_lines: bool = False,
+    read_interval: float = 0.0,
 ) -> bool:
     if not math.isfinite(startup_wait) or not 0 <= startup_wait <= 10:
         raise ValueError("startup_wait must be finite and between 0 and 10 seconds.")
+    if type(reads) is not int or not 1 <= reads <= 600:
+        raise ValueError("reads must be an integer between 1 and 600.")
+    if not math.isfinite(read_interval) or not 0 <= read_interval <= 5:
+        raise ValueError("read_interval must be finite and between 0 and 5 seconds.")
     print(f"Follower diagnosis on {port}. Support the arm before running this command.", flush=True)
     print("Sends bridge and torque-OFF commands, then reads. No position targets are sent.", flush=True)
     print("This diagnostic does not verify bridge entry or the hardware torque state.", flush=True)
@@ -98,6 +104,8 @@ def diagnose(
     robot.bus.probe_before_torque_off = probe_before_torque_off
     robot.bus.inactive_control_lines = inactive_control_lines
     successes = 0
+    minimum = None
+    maximum = None
     try:
         robot.connect(calibrate=False)
         print("AFTER torque-OFF command (hardware torque state not acknowledged):", flush=True)
@@ -110,11 +118,23 @@ def diagnose(
             else:
                 successes += 1
                 print(f"POSITIONS: {positions}", flush=True)
+                if minimum is None:
+                    minimum, maximum = list(positions), list(positions)
+                else:
+                    minimum = [min(old, new) for old, new in zip(minimum, positions, strict=True)]
+                    maximum = [max(old, new) for old, new in zip(maximum, positions, strict=True)]
+            if read_interval and attempt < reads:
+                time.sleep(read_interval)
     finally:
         robot.disconnect()
     if probe_before_torque_off:
         print(f"Before torque-OFF: reply received={robot.bus.probe_succeeded}", flush=True)
     print(f"Result: {successes}/{reads} reads returned positions.", flush=True)
+    print(f"Rejected invalid position replies: {robot.bus.rejected_position_replies}", flush=True)
+    if minimum is not None:
+        print("Observed raw min/max (not a calibration):", flush=True)
+        for name, low, high in zip(JOINT_NAMES, minimum, maximum, strict=True):
+            print(f"  {name}: min={low}, max={high}", flush=True)
     return successes > 0
 
 
@@ -172,7 +192,13 @@ def main():
         action="store_true",
         help="Query firmware with CMD 1 only, in normal mode after a full power cycle",
     )
-    parser.add_argument("--reads", type=int, default=3, choices=range(1, 11))
+    parser.add_argument("--reads", type=int, default=3, metavar="1..600")
+    parser.add_argument(
+        "--read-interval",
+        type=float,
+        default=0.0,
+        help="Extra pause between position reads for a human-run range check (0..5 seconds)",
+    )
     parser.add_argument(
         "--startup-wait",
         type=float,
@@ -192,8 +218,14 @@ def main():
     args = parser.parse_args()
     if not math.isfinite(args.startup_wait) or not 0 <= args.startup_wait <= 10:
         parser.error("--startup-wait must be finite and between 0 and 10 seconds")
+    if not 1 <= args.reads <= 600:
+        parser.error("--reads must be between 1 and 600")
+    if not math.isfinite(args.read_interval) or not 0 <= args.read_interval <= 5:
+        parser.error("--read-interval must be finite and between 0 and 5 seconds")
     if args.controller_probe and args.probe_before_torque_off:
         parser.error("--controller-probe cannot be combined with --probe-before-torque-off")
+    if args.controller_probe and args.read_interval:
+        parser.error("--read-interval is only available for position diagnosis, not --controller-probe")
     logging.basicConfig(level=logging.INFO)
     if args.controller_probe:
         successful = probe_controller(args.port, args.startup_wait, args.inactive_control_lines)
@@ -204,6 +236,7 @@ def main():
             args.startup_wait,
             args.probe_before_torque_off,
             args.inactive_control_lines,
+            args.read_interval,
         )
     raise SystemExit(0 if successful else 2)
 

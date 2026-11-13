@@ -3,9 +3,10 @@ from typing import Any
 
 from lerobot.teleoperators import Teleoperator
 
-from .bus import JOINT_NAMES, NexArmMotorsBus, map_leader_to_follower
+from .bus import JOINT_NAMES, map_leader_to_follower
 from .calibration import CalibrationError, CalibrationMixin, JointNormalizer, load_calibration
 from .config_nexarm import NexArmLeaderConfig
+from .validated_bus import ValidatedNexArmMotorsBus
 
 
 class NexArmLeader(CalibrationMixin, Teleoperator):
@@ -17,7 +18,7 @@ class NexArmLeader(CalibrationMixin, Teleoperator):
         self._action_ready = False
         super().__init__(config)
         self.config = config
-        self.bus = NexArmMotorsBus(port=config.port, baudrate=config.baudrate)
+        self.bus = ValidatedNexArmMotorsBus(port=config.port, baudrate=config.baudrate)
         self._follower_normalizer = None
 
     @property

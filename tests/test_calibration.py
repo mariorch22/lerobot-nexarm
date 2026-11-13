@@ -129,6 +129,39 @@ def test_range_recorder_detects_wrap_and_preserves_zero_and_sign(calibration):
         recorder.update([5] * 6)
 
 
+@pytest.mark.parametrize("previous_gripper,current_gripper", [(1195, 4095), (2833, 0)])
+def test_jump_error_identifies_gripper_and_both_complete_samples(previous_gripper, current_gripper):
+    previous = [2053, 3304, 1613, 2921, 1074, previous_gripper]
+    current = [3465, 3304, 1613, 2921, 1074, current_gripper]
+    recorder = RangeRecorder(previous)
+    with pytest.raises(CalibrationError) as caught:
+        recorder.update(current)
+    message = str(caught.value)
+    assert message.startswith("gripper:")
+    assert f"Previous raw={previous_gripper}, current raw={current_gripper}" in message
+    assert f"delta={current_gripper - previous_gripper:+d} ticks" in message
+    assert f"Previous sample={previous}; current sample={current}" in message
+    assert "before saving; all six joints are monitored" in message
+    assert recorder.previous == previous
+
+
+def test_gripper_jump_during_pan_recording_aborts_with_diagnostic_context(monkeypatch, capsys):
+    zero = [2053, 3304, 1613, 2921, 1074, 1195]
+    valid = [3465, 3304, 1613, 2921, 1074, 1195]
+    discontinuous = [3465, 3304, 1613, 2921, 1074, 4095]
+    bus = Mock()
+    bus.read_positions.side_effect = [zero, valid, discontinuous]
+    prompts = Mock(return_value="")
+    monkeypatch.setattr("builtins.input", prompts)
+    monkeypatch.setattr("lerobot_robot_nexarm.calibration.enter_pressed", lambda: False)
+    monkeypatch.setattr("lerobot_robot_nexarm.calibration.time.sleep", lambda _: None)
+    with pytest.raises(CalibrationError, match=r"gripper:.*Previous raw=1195, current raw=4095"):
+        record_calibration(bus, {})
+    assert prompts.call_count == 2  # Zero and pan only; never advance to shoulder_lift.
+    assert bus.read_positions.call_count == 3
+    assert capsys.readouterr().out.endswith("\n")
+
+
 def test_interactive_two_stage_measurement_records_raw_reference_and_ranges(monkeypatch, calibration):
     zero = [2000] * 5 + [2048]
     low = [1000] * 5 + [1195]

@@ -5,9 +5,10 @@ from lerobot.cameras import make_cameras_from_configs
 from lerobot.lerobot_types import RobotAction, RobotObservation
 from lerobot.robots import Robot
 
-from .bus import JOINT_NAMES, NexArmMotorsBus
+from .bus import JOINT_NAMES
 from .calibration import CalibrationError, CalibrationMixin, JointNormalizer
 from .config_nexarm import NexArmFollowerConfig
+from .validated_bus import ValidatedNexArmMotorsBus
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class NexArmFollower(CalibrationMixin, Robot):
         self._bridge_entered = False
         super().__init__(config)
         self.config = config
-        self.bus = NexArmMotorsBus(port=config.port, baudrate=config.baudrate)
+        self.bus = ValidatedNexArmMotorsBus(port=config.port, baudrate=config.baudrate)
         self.cameras = make_cameras_from_configs(config.cameras)
 
     @property
