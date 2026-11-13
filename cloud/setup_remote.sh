@@ -20,7 +20,7 @@ command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 
 echo "== LeRobot at $LEROBOT_COMMIT"
 cd /workspace
-[ -d lerobot ] || git clone https://github.com/huggingface/lerobot.git
+[ -d lerobot ] || git clone --progress https://github.com/huggingface/lerobot.git
 cd lerobot
 git checkout -q "$LEROBOT_COMMIT"
 [ -d .venv ] || uv venv --python 3.12
