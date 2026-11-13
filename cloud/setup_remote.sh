@@ -19,10 +19,14 @@ apt-get install -y -qq git ffmpeg curl tmux
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 
 echo "== LeRobot at $LEROBOT_COMMIT"
-cd /workspace
-[ -d lerobot ] || git clone --progress https://github.com/huggingface/lerobot.git
-cd lerobot
-git checkout -q "$LEROBOT_COMMIT"
+mkdir -p /workspace/lerobot
+cd /workspace/lerobot
+# Fetch only the pinned commit: quick, and it repairs a checkout that was interrupted earlier.
+if [ "$(git rev-parse HEAD 2>/dev/null)" != "$LEROBOT_COMMIT" ]; then
+  git init -q
+  git fetch --progress --depth 1 https://github.com/huggingface/lerobot.git "$LEROBOT_COMMIT"
+  git checkout -q FETCH_HEAD
+fi
 [ -d .venv ] || uv venv --python 3.12
 source .venv/bin/activate
 uv pip install 'torch==2.11.0' 'torchvision==0.26.0' \

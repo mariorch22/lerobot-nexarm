@@ -124,9 +124,10 @@ class Deployment:
             status = instance.get("actual_status")
             if status == "running" and ssh_endpoint(instance):
                 return instance
-            if status in ("exited", "offline"):
-                fail(f"instance {instance_id} is {status}; check the vast.ai console")
-            if status == "stopped" and not started:
+            if status == "offline":
+                fail(f"instance {instance_id} is offline; check the vast.ai console")
+            if status in ("exited", "stopped") and not started:  # vast.ai reports a stopped one as exited
+                print("Starting the stopped instance ...")
                 self.vast.start_instance(id=instance_id)
                 started = True
             time.sleep(10)
