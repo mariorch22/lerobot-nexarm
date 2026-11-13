@@ -10,7 +10,7 @@ robot:
   disable_torque_on_disconnect: false
   readback_after_write: true
   cameras:
-    front:
+    scene:
       type: opencv
       index_or_path: 1
       width: 640
@@ -33,8 +33,6 @@ dataset:
   video: true
   push_to_hub: false
   streaming_encoding: true
-rename_map:
-  observation.images.front: observation.images.scene
 fps: 30
 duration: 30
 task: pick up the object

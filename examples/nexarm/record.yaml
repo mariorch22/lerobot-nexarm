@@ -10,7 +10,7 @@ robot:
   disable_torque_on_disconnect: false
   readback_after_write: true
   cameras:
-    front:
+    scene:
       type: opencv
       index_or_path: 1
       width: 640

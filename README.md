@@ -49,10 +49,10 @@ Die Beispiele verwenden die aktuell vom Nutzer zugeordneten Ports: Follower
 `--robot.type`. Während des Betriebs dürfen Hiwonders PC-Tool und serielle Monitore
 den betreffenden Port nicht gleichzeitig belegen.
 
-Die Beispiele konfigurieren `front` und `wrist` mit 640×480 bei 30 fps und `MJPG`.
+Die Beispiele konfigurieren `scene` (feste Außenkamera) und `wrist` mit 640×480 bei 30 fps und `MJPG`.
 `fourcc`, Indizes und Namen sind frei konfigurierbar; nach einer Namensänderung auch
 Dataset-/Policy-Zuordnung prüfen. Für den untersuchten F3A-SO-101-Checkpoint heißt
-die Außenkamera `scene`; das Inferenzbeispiel bildet `front` über `rename_map` darauf ab.
+die Außenkamera `scene`; die Beispiele verwenden diesen Namen deshalb direkt.
 
 ## Direkt teleoperieren wie mit old, ohne Kalibrierdialog
 
@@ -83,7 +83,7 @@ uv run --locked python scripts/teleoperate_raw.py --follower-port=COM13 --leader
 
 Das Skript übernimmt den Kamera-Lesepfad aus dem Herstellerfork und verwendet
 die aktuellen LeRobot-Kameras. Es liest ausschließlich `robot.cameras` aus der
-[vorhandenen YAML](examples/nexarm/teleoperate.yaml): `front` auf Index 1 und
+[vorhandenen YAML](examples/nexarm/teleoperate.yaml): `scene` auf Index 1 und
 `wrist` auf Index 2, jeweils 640×480, 30 fps, MJPG. Indizes und Namen dort an den
 Aufbau anpassen; Kameras mit `uv run lerobot-find-cameras opencv` bestimmen.
 Die COM-Ports kommen weiterhin aus den beiden CLI-Argumenten. Kalibrierungsfelder,

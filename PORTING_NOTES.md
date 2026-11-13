@@ -1889,3 +1889,30 @@ Ein zweiter Agent hatte zwischenzeitlich das komplette `../inference`-Paket nach
 nicht beabsichtigt. Auf Anweisung des Nutzers gilt wieder Abschnitt 20: `cloud/`
 enthält nur `deploy.py`, `setup_remote.sh`, `server.py`, README und `.env.example`.
 Die große Fassung liegt weiterhin committet in `../inference`.
+
+## 22. Cloud-Client `cloud/client.py` (14.11.2026)
+
+Plan und Umsetzung des Laptop-Clients nach `../CLOUD_BRIDGE.md`, angepasst an die
+acht Beobachtungsschritte des Checkpoints.
+
+- Schleife: beobachten, Plan holen, ersten Befehl prüfen, 32 Befehle mit 30 Hz senden
+  und dabei jeden Takt in einen Ringpuffer mit acht Plätzen legen. Der nächste Plan
+  bekommt diese acht Takte. Am Pin sind die Beobachtungsindizes
+  `range(1 - n_obs_steps, 1)`, also aufeinanderfolgende 30-Hz-Takte;
+  `history_snapshots=2` betrifft nur die interne Videokodierung.
+- `last_command` eines Takts ist der vom Plugin zurückgegebene, tatsächlich gesendete
+  Befehl. Im Dry-run bleibt er leer: Es wurde nichts gesendet, also behauptet der
+  Client auch keine Befehlshistorie. Das weicht vom ersten Planentwurf ab.
+- Sicherheit: Dry-run als Standard, Sprungprüfung (15° / Greifer 30), Server-Timeout 5 s,
+  Laufzeitgrenze, Strg+C über das normale `disconnect()`. Keine zweite Begrenzung
+  neben dem Plugin. Vor dem Verbinden wird die Follower-Kalibrierung geprüft, damit
+  kein Kalibrierdialog startet.
+- `--fake-robot` ersetzt Arm und Kameras durch feste Werte und prüft so Server und
+  Tunnel ohne Hardware.
+- Kameraname: `teleoperate.yaml`, `record.yaml` und `inference.yaml` verwenden jetzt
+  `scene` statt `front` (Entscheidung aus 11.7); die `rename_map` im Inferenzbeispiel
+  entfällt. Das weicht vom Default `front` in `../AGENTS.md` ab.
+- Nicht umgesetzt: Aufzeichnung als LeRobot-Dataset (`--record`).
+- Geprüft: Tests mit Fake-Follower (Dry-run, Historie, Sprungprüfung, Timeout, Strg+C,
+  30-Hz-Takt, Laden der Beispiel-YAML) und ein Lauf über echtes HTTP gegen den lokalen
+  Mock-Server. **Nicht geprüft:** echter Arm, echte Kameras, echtes Modell.

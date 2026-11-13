@@ -57,7 +57,7 @@ def test_example_uses_actual_pinned_cli_schema_without_hardware(name):
         else:
             config = draccus.parse(Config, config_path=path, args=[])
     assert config.robot.type == "nexarm_follower"
-    assert config.robot.cameras["front"].fourcc == "MJPG"
+    assert config.robot.cameras["scene"].fourcc == "MJPG"
     assert config.robot.cameras["wrist"].fps == 30
     if name != "inference":
         assert config.teleop.type == "nexarm_leader"

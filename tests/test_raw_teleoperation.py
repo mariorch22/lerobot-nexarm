@@ -168,8 +168,8 @@ def test_load_existing_camera_example_without_loading_calibration(raw_teleop):
 
     path = Path(__file__).resolve().parents[1] / "examples" / "nexarm" / "teleoperate.yaml"
     configs = raw_teleop.load_camera_configs(path)
-    assert list(configs) == ["front", "wrist"]
-    for name, index in [("front", 1), ("wrist", 2)]:
+    assert list(configs) == ["scene", "wrist"]
+    for name, index in [("scene", 1), ("wrist", 2)]:
         assert isinstance(configs[name], OpenCVCameraConfig)
         assert configs[name].index_or_path == index
         assert (configs[name].width, configs[name].height, configs[name].fps) == (640, 480, 30)
@@ -206,8 +206,8 @@ def test_custom_camera_name_index_and_settings(raw_teleop, tmp_path):
         "robot: {}",
         "robot: {cameras: {}}",
         "robot: {cameras: []}",
-        "robot: {cameras: {front: {type: unknown_camera}}}",
-        "robot: {cameras: {front: {type: opencv, index_or_path: 1, typo: 123}}}",
+        "robot: {cameras: {scene: {type: unknown_camera}}}",
+        "robot: {cameras: {scene: {type: opencv, index_or_path: 1, typo: 123}}}",
         "robot: {cameras: {'': {type: opencv, index_or_path: 1}}}",
         "robot: {cameras: {shoulder_pan.pos: {type: opencv, index_or_path: 1}}}",
         "robot: [invalid yaml",
@@ -229,7 +229,7 @@ def camera_setup(raw_teleop, arms, monkeypatch):
     frame = np.arange(12, dtype=np.uint8).reshape(2, 2, 3)
     cameras = {}
     configs = {}
-    for name, index in [("front", 1), ("wrist", 2)]:
+    for name, index in [("scene", 1), ("wrist", 2)]:
         camera = MagicMock(color_mode=ColorMode.RGB)
         camera.read_latest.return_value = frame
         camera.async_read.return_value = frame
@@ -252,14 +252,14 @@ def test_camera_view_logs_images_and_raw_values_with_original_motor_mapping(raw_
     )
     factory.assert_called_once_with(configs)
     assert [event[:2] for event in events[:4]] == [
-        ("camera", "front"),
+        ("camera", "scene"),
         ("camera", "wrist"),
         ("open", "MOCK_L"),
         ("tx", "MOCK_L"),
     ]
     viewer.connect.assert_called_once_with(cameras)
     data = viewer.log.call_args.kwargs
-    assert data["observation"]["front"] is frame
+    assert data["observation"]["scene"] is frame
     assert data["observation"]["wrist"] is frame
     assert data["observation"]["shoulder_lift.pos"] == 2100
     assert data["action"]["shoulder_lift.pos"] == 3096
@@ -281,19 +281,19 @@ def test_camera_view_logs_images_and_raw_values_with_original_motor_mapping(raw_
 
 def test_camera_stale_frame_uses_manufacturer_async_fallback(raw_teleop, camera_setup):
     configs, cameras, frame, viewer, _ = camera_setup
-    cameras["front"].read_latest.side_effect = TimeoutError("stale frame")
+    cameras["scene"].read_latest.side_effect = TimeoutError("stale frame")
     raw_teleop.teleoperate("MOCK_F", "MOCK_L", duration=1 / 30, camera_configs=configs, display_data=True)
-    cameras["front"].async_read.assert_called_once_with(timeout_ms=2000)
-    assert viewer.log.call_args.kwargs["observation"]["front"] is frame
+    cameras["scene"].async_read.assert_called_once_with(timeout_ms=2000)
+    assert viewer.log.call_args.kwargs["observation"]["scene"] is frame
 
 
 def test_bgr_camera_is_converted_to_rgb_without_modifying_original(raw_teleop, camera_setup):
     from lerobot.cameras import ColorMode
 
     _, cameras, frame, _, _ = camera_setup
-    cameras["front"].color_mode = ColorMode.BGR
+    cameras["scene"].color_mode = ColorMode.BGR
     original = frame.copy()
-    result = raw_teleop._read_camera(cameras["front"], "front")
+    result = raw_teleop._read_camera(cameras["scene"], "scene")
     np.testing.assert_array_equal(result, original[..., ::-1])
     np.testing.assert_array_equal(frame, original)
 
@@ -323,8 +323,8 @@ def test_camera_connect_failure_cleans_up_before_any_serial_open(raw_teleop, arm
 def test_camera_read_failure_sends_no_target_and_closes_all_devices(raw_teleop, arms, camera_setup, failure):
     configs, cameras, _, viewer, _ = camera_setup
     follower, leader, _ = arms
-    cameras["front"].read_latest.side_effect = failure
-    cameras["front"].async_read.side_effect = failure
+    cameras["scene"].read_latest.side_effect = failure
+    cameras["scene"].async_read.side_effect = failure
     with pytest.raises(type(failure)):
         raw_teleop.teleoperate("MOCK_F", "MOCK_L", camera_configs=configs, display_data=True)
     assert not any(command == 97 for command, _ in follower.commands())
@@ -369,7 +369,7 @@ def test_cli_camera_config_enables_viewer_unless_disabled(
     )
     raw_teleop.main()
     assert run.call_args.args == ("MOCK_F", "MOCK_L", 30.0, None)
-    assert list(run.call_args.kwargs["camera_configs"]) == ["front", "wrist"]
+    assert list(run.call_args.kwargs["camera_configs"]) == ["scene", "wrist"]
     assert run.call_args.kwargs["display_data"] is expected
     assert run.call_args.kwargs["show_fps"] is bool(fps_args)
 

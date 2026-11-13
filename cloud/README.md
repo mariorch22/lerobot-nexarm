@@ -77,6 +77,41 @@ Ein erneutes `up` verwendet die vorhandene Instanz (erkannt am Label `nexarm-f3a
 Der Server merkt sich nichts zwischen zwei Anfragen. Er setzt Policy und Prozessoren bei
 jeder Anfrage zurück.
 
+## Arm steuern: `client.py`
+
+Der Client läuft auf dem Laptop in der Plugin-Umgebung. Er beobachtet Arm und Kameras,
+holt 32 Befehle vom Server, prüft den ersten und führt sie mit 30 Hz aus. Dabei schreibt
+er jeden Takt mit und schickt beim nächsten Plan die letzten acht als Historie. Während
+der Server rechnet, sendet er nichts und der Arm hält seine Position.
+
+```powershell
+# 1. Ohne Arm und ohne Kameras: testet Server und Tunnel
+uv run python cloud/client.py --task "put the blue block into the bowl" --fake-robot
+
+# 2. Mit Arm, aber ohne Bewegung (Dry-run ist Standard)
+uv run python cloud/client.py --task "put the blue block into the bowl" --config examples/nexarm/inference.yaml
+
+# 3. Mit Bewegung
+uv run python cloud/client.py --task "put the blue block into the bowl" --config examples/nexarm/inference.yaml --execute
+```
+
+- **Dry-run:** Ohne `--execute` geht kein Befehl an den Arm. Der Follower wird trotzdem
+  verbunden und hält mit eingeschaltetem Drehmoment seine Position.
+- **Kalibrierung:** Mit `--config` bricht der Client vor dem Verbinden ab, wenn keine
+  gültige Follower-Kalibrierung vorliegt.
+- **Kameras:** Die YAML muss `scene` (feste Außenkamera) und `wrist` definieren.
+- **Sprungprüfung:** Liegt der erste Befehl eines Plans mehr als 15° (Greifer 30) vom
+  gemessenen Zustand entfernt, wird der Plan verworfen und die Schleife endet
+  (`--arm-jump`, `--gripper-jump`).
+- **Timeout:** Antwortet der Server nicht innerhalb von 5 s (`--timeout`), endet die Schleife.
+- **Ende:** nach `--duration` Sekunden (Standard 30) oder mit `Strg+C`. Der Arm hält danach
+  weiter seine Position.
+- **Log:** eine Zeile pro Plan in `outputs/cloud_client.jsonl` (Latenz, Zustand, erster und
+  letzter Befehl).
+
+Vor dem ersten `--execute`: Koordinatenlimits in der Hiwonder-Software setzen, freien
+Arbeitsbereich schaffen und eine Person an den Netzschalter stellen.
+
 ## Lokal ohne GPU testen
 
 ```powershell
