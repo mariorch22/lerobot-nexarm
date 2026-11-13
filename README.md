@@ -43,8 +43,9 @@ uv run lerobot-find-port
 uv run lerobot-find-cameras opencv
 ```
 
-Follower `COM19`, Leader `COM18` und Kameraindizes `1`/`2` in den Beispielen sind
-Platzhalter. `lerobot-find-port` ist ein allgemeines Enumerationstool ohne
+Die Beispiele verwenden die aktuell vom Nutzer zugeordneten Ports: Follower
+`COM13`, Leader `COM14`. Für andere Anschlüsse erneut bestimmen; Kameraindizes
+`1`/`2` sind Platzhalter. `lerobot-find-port` ist ein allgemeines Enumerationstool ohne
 `--robot.type`. Während des Betriebs dürfen Hiwonders PC-Tool und serielle Monitore
 den betreffenden Port nicht gleichzeitig belegen.
 
@@ -53,6 +54,39 @@ Die Beispiele konfigurieren `front` und `wrist` mit 640×480 bei 30 fps und `MJP
 Dataset-/Policy-Zuordnung prüfen. Für den untersuchten F3A-SO-101-Checkpoint heißt
 die Außenkamera `scene`; das Inferenzbeispiel bildet `front` über `rename_map` darauf ab.
 
+## Direkt teleoperieren wie mit old, ohne Kalibrierdialog
+
+Für den ersten Test mit dem Leader gibt es denselben Rohwert-Ablauf wie in old.
+Im neuen Repo starten; die zuletzt zugeordneten Ports sind Follower COM13 und
+Leader COM14:
+
+```powershell
+uv run --locked python scripts/teleoperate_raw.py --follower-port=COM13 --leader-port=COM14
+```
+
+**Der Aufruf kann den Arm bewegen.** Der Leader erhält Torque-off, der Follower
+Bridge-on und Torque-on, genau wie im alten normalen Teleoperationsbetrieb.
+Es werden zuerst Follower- und Leader-Positionen gelesen, dann die unveränderte
+Schulterspiegelung und Greiferformel angewandt und Rohziele gesendet. Die zusätzliche
+Positionsabfrage nach jedem Write bleibt erhalten. Keine Kameras, keine
+Kalibrierungsdateien, kein Modell und keine Aufzeichnung. Default sind 30 Hz;
+optional etwa `--fps=20 --duration=10`. Strg+C beendet den Lauf, sendet den
+Bridge-Ausgangsbefehl und schließt beide Ports. Wie bei old wird beim Trennen
+kein zusätzlicher Torque-off-Befehl an den Follower geschickt.
+
+Olds angebliche Kalibrierung schrieb nur pauschal `0..4095`, Offset `2048` und
+`drive_mode=0` für alle Achsen. Für reine Rohwert-Teleoperation ist diese Datei
+nicht nötig. Das Skript legt deshalb keine Platzhalter an und verändert keine
+vorhandene Kalibrierung. Vor dem ersten Positionsziel müssen beide Arme auf
+Positionsabfragen antworten; ein Timeout wird mit Rolle und Port ausgegeben.
+Ob die Torque-on-Startfolge den bisher beobachteten Positions-Timeout behebt, ist
+noch am Arm zu prüfen.
+
+Für den F3A-SO-101-Checkpoint braucht der normale Plugin-Betrieb dagegen
+Gelenkwinkel und Greiferprozente in der passenden Referenz. Dafür sind die
+gemessenen Nullpunkte, Bereiche und Vorzeichen notwendig. Die folgenden
+Standard-CLI-Beispiele gelten für diesen normierten Betrieb.
+
 ## Kalibrieren: erst Follower, dann Leader
 
 **Die folgenden Kommandos öffnen echte Geräte. Sie sind für die menschliche
@@ -60,8 +94,8 @@ Hardwareabnahme bestimmt.** Den Arm beim Abschalten des Drehmoments mechanisch
 stützen. Die Kalibrierung bleibt durchgehend torque off.
 
 ```powershell
-uv run lerobot-calibrate --robot.type=nexarm_follower --robot.port=COM19 --robot.id=follower --robot.calibration_dir=calibration/follower
-uv run lerobot-calibrate --teleop.type=nexarm_leader --teleop.port=COM18 --teleop.id=leader --teleop.calibration_dir=calibration/leader --teleop.follower_calibration_path=calibration/follower/follower.json
+uv run lerobot-calibrate --robot.type=nexarm_follower --robot.port=COM13 --robot.id=follower --robot.calibration_dir=calibration/follower
+uv run lerobot-calibrate --teleop.type=nexarm_leader --teleop.port=COM14 --teleop.id=leader --teleop.calibration_dir=calibration/leader --teleop.follower_calibration_path=calibration/follower/follower.json
 ```
 
 Die interaktive Routine:
@@ -69,7 +103,8 @@ Die interaktive Routine:
 Jeden Shell-Befehl einzeln am `PS ...>`-Prompt starten. Während die Kalibrierung
 auf ENTER wartet, keine weiteren `uv run ...`-Befehle einfügen: Das ist ein
 Programmeingabedialog. Strg+C bricht ab; dabei wird keine neue Kalibrierung gespeichert.
-Erst nach erfolgreichem Abschluss beider Kalibrierungen Teleoperation starten.
+Im normierten Plugin-Betrieb erst nach erfolgreichem Abschluss beider
+Kalibrierungen Teleoperation starten.
 
 1. Arm in die SO-101-Mittel-/Referenzpose bringen und ENTER drücken. Die sechs
    Rohpositionen werden als hostseitige Nullpunkte `homing_offset` gespeichert.
@@ -140,10 +175,10 @@ Zuerst Ports/Indizes anpassen, beide Kalibrierungen durchführen und Richtungen
 am Arm prüfen. Die Beispiele verwenden denselben Kalibrierungspfad wie oben.
 
 Für den ersten Test ohne Kameras gibt es eine eigene Konfiguration. Mit den
-per USB-Abziehtest zugeordneten Ports Follower COM12 / Leader COM11:
+aktuell vom Nutzer zugeordneten Ports Follower COM13 / Leader COM14:
 
 ```powershell
-uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate_no_cameras.yaml --robot.port=COM12 --teleop.port=COM11
+uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate_no_cameras.yaml --robot.port=COM13 --teleop.port=COM14
 ```
 
 Ein CLI-Override mit `--robot.cameras="{}"` leert die bereits aus der YAML
@@ -187,13 +222,13 @@ F3A-Anpassung und Policy-Server sind nicht Bestandteil dieses Pakets.
   unverändert. Debugtext wird übersprungen; Positionslesen versucht dreimal.
 - **Follower antwortet beim Kalibrieren nicht:** Bei bestätigtem Follower-Port
   und eingeschalteter externer Versorgung kann ein Mensch den Transport ausgeben:
-  `uv run --locked python scripts/diagnose_nexarm.py --port=COM12`.
+  `uv run --locked python scripts/diagnose_nexarm.py --port=COM13`.
   Arm vorher abstützen. Der Aufruf verwendet denselben Bridge-/Torque-off-Pfad,
   sendet keine Positionsziele und benötigt keine Kalibrierung. Er zeigt TX sowie
   empfangene RX-Bytes und sendet beim Beenden den Bridge-Ausgangsbefehl. Ein Timeout ohne RX
   und empfangene, aber nicht parsebare Frames sind unterschiedliche Befunde.
   Für einen ausdrücklichen Vergleichstest bei vermutetem Neustart durch die
-  Portöffnung: `uv run --locked python scripts/diagnose_nexarm.py --port=COM12 --startup-wait=2`.
+  Portöffnung: `uv run --locked python scripts/diagnose_nexarm.py --port=COM13 --startup-wait=2`.
   Nur dieser Diagnoseaufruf wartet zusätzlich vor dem ersten Bridge-Befehl;
   das normale Treiberverhalten wird dadurch nicht geändert, RTS/DTR werden
   nicht umgeschaltet. Das ist eine unbestätigte Diagnosehypothese, kein Firmware-Fix.
@@ -205,14 +240,14 @@ F3A-Anpassung und Policy-Server sind nicht Bestandteil dieses Pakets.
   `--inactive-control-lines` ist ein weiterer ausdrücklicher Diagnosevergleich:
   DTR und RTS werden vor dem Öffnen auf False gesetzt, um einen möglichen
   RTS-/DTR-bedingten Reset zu untersuchen. Beispiel:
-  `uv run --locked python scripts/diagnose_nexarm.py --port=COM12 --startup-wait=2 --inactive-control-lines`.
+  `uv run --locked python scripts/diagnose_nexarm.py --port=COM13 --startup-wait=2 --inactive-control-lines`.
   Default bleibt die ursprüngliche Portöffnung. Die Wirksamkeit dieser Option
   auf der konkreten NexArm-Platine ist noch nicht nachgewiesen; sie ist kein
   Firmware-Update und keine Änderung des installierten Robotertreibers.
   Bleibt der Follower stumm, kann die USB-Verbindung unabhängig von der Servo-Bridge
   geprüft werden. Follower abstützen, ausschalten und USB abziehen; dann wieder
   einschalten, USB anschließen und den Start abwarten. Im normalen Firmwaremodus:
-  `uv run --locked python scripts/diagnose_nexarm.py --port=COM12 --controller-probe --startup-wait=5 --inactive-control-lines`.
+  `uv run --locked python scripts/diagnose_nexarm.py --port=COM13 --controller-probe --startup-wait=5 --inactive-control-lines`.
   Dieser Modus sendet ausschließlich die Herstellerabfrage CMD 1 für die
   Firmwareversion, keine Bridge-, Torque- oder Positionsbefehle. Eine Version
   bestätigt die Controllerkommunikation; ein Timeout identifiziert die installierte

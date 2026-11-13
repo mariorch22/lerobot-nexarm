@@ -166,7 +166,7 @@ def probe_controller(port: str, startup_wait: float = 0.0, inactive_control_line
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", required=True, help="Confirmed FOLLOWER port, e.g. COM12")
+    parser.add_argument("--port", required=True, help="Confirmed FOLLOWER port, e.g. COM13")
     parser.add_argument(
         "--controller-probe",
         action="store_true",

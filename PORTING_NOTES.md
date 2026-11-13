@@ -1142,3 +1142,270 @@ Softwareprüfung dieser Ergänzung: 39 Diagnose-/Gerätetests mit gesperrten ech
 Serial-Ports bestanden; Ruff-Lint und Formatprüfung bestanden. Der SHA-256 des
 Produktionstreibers ist weiterhin unverändert. Die Tests bestätigen keine reale
 Controllerantwort.
+
+Der menschliche Firmwaretest auf COM12 mit `--controller-probe --startup-wait=5
+--inactive-control-lines` sendet `ff ff ff 02 01 fd`, erhält im dreisekündigen
+Lesefenster jedoch ebenfalls keine RX-Bytes und endet mit Timeout. Damit ist
+auch über diesen vom Robot-Lifecycle unabhängigen Pfad keine Controllerantwort
+bestätigt. Der Befund entsteht vor jeder Positionsnormalisierung; er identifiziert
+weder einen Hardwaredefekt noch die installierte Firmware. Ob beim vorausgesetzten
+vollständigen Neustart wirklich die normale Firmwareanzeige am Follower erscheint,
+bleibt zu klären. Nächste Eingrenzung: sichtbarer Startzustand des Followers und
+gegebenenfalls unabhängige Versionsabfrage im Herstellerprogramm, wie in der
+offiziellen Anleitung unter USB Serial / System Settings beschrieben. Keine
+weiteren Änderungen an Baudrate, Protokoll oder Firmware aus diesem Timeout ableiten.
+
+## 13. Erneuter direkter Vergleich mit old wegen COM12-Timeout
+
+Auf ausdrückliche Bitte des Nutzers wurden der tatsächliche Importpfad von old,
+Treiber, Serial-Backend und die ausgeführten Follower-Befehlsfolgen erneut geprüft.
+Alle Quelldateien in old, hiwonder-fork und upstream blieben unverändert; kein
+echter serieller Port wurde geöffnet.
+
+### Gesicherte Softwarebefunde
+
+- `old/pyproject.toml`, `old/uv.lock` und die installierte LeRobot-`.pth` zeigen
+  übereinstimmend auf `old/finsh/src`. Der andere Checkout `old/lerobot` ist nicht
+  die Basis des bisherigen `uv run --locked`-Aufrufs.
+- Motorbus, Follower, Leader und ihre beiden Config-Dateien sind zwischen
+  `old/finsh` und `hiwonder-fork` jeweils bytegleich. Der Plugin-Motorbus ist
+  ebenfalls bytegleich zu beiden Kopien, weiterhin SHA-256
+  `d53a53ba1f61fa9584b203e25c30227a184a4de011b64d2ad4e0441b1c155b40`.
+- Beide Projektumgebungen haben pySerial 3.5; auch `serial/serialwin32.py` ist
+  bytegleich, SHA-256
+  `17681ea9a650120c71db1aae9b8881301a40d38c47b34bb0da050e3f5bfbbe00`.
+  Es wurde kein abweichendes Windows-Serial-Backend durch den Wechsel gefunden.
+- Beide Teleoperation-Skripte verbinden zuerst den Leader, dann den Follower
+  und lesen im normalen Loop zunächst die Follower-Beobachtung vor der Aktion.
+  Die kamera-freie old-Konfiguration enthält keine weitere Hardwareinitialisierung.
+  Ihre COM3/COM4-Werte sind alte Beispiele. Die zuletzt menschlich bestätigte
+  Zuordnung für diesen Aufbau lautet Follower COM12, Leader COM11.
+
+### Ausgeführter Vergleich mit denselben Mock-Antworten
+
+Ein lokaler, ignorierter Prüfhelfer liegt in
+`.uv-cache/test_old_transport_comparison.py`. Er führt den vollständigen originalen
+old-Bustext und die unveränderten I/O-Methodenkörper des old-Followers mit einem
+minimalen kalibrierten Objektkontext aus. Der alte LeRobot-Unterbau wird dabei
+nicht geladen; seine Dateiverwaltung und die gesamte alte CLI sind somit nicht
+Gegenstand dieses dynamischen Tests. Dies vermeidet Paketkollisionen und schreibt
+keine Import-Caches in old. Das Plugin verwendet seine tatsächliche Follower-Klasse.
+Alle Serial-Konstruktoren sind standardmäßig gesperrt und werden für die Prüfung
+durch denselben Byte-Stream-Mock ersetzt; Testport ausschließlich `MOCK`.
+
+Neun Vergleiche bestanden: Quell-/Backendgleichheit, normale Antwort, kurze
+Firmware-Prüfsumme, fragmentierte Antwort, ungültige Prüfsumme, keine Antwort,
+gleiche Rohziele mit Write/Readback, Kalibrier-Connect und ein ausdrücklich
+hypothetischer Torque-abhängiger Mock. Der Aufruf zur lokalen Wiederholung lautet:
+
+```powershell
+uv run --no-sync --offline --cache-dir .uv-cache pytest -q .uv-cache/test_old_transport_comparison.py
+```
+
+Mit gültiger Kalibrierung stimmen Serial-Konstruktorargumente, TX-Bytes und die
+explizit angeforderten Sleeps überein. Geprüft wurden 1.000.000 Baud und jeweils
+0,05 Sekunden Read-/Write-Timeout; dies misst keine reale Windows-/Hardwarelatenz.
+Bei gleichen physikalischen Zielen ist auch diese Folge identisch:
+
+`68(on) -> 98(on) -> 96 -> 97 -> 96 -> 68(off)`.
+
+Unterschiedliche Rückgabewerte von `send_action` sind die bereits freigegebene
+Q6-Entscheidung: old liefert Readback-Rohwerte, das Plugin normierte gesendete
+Ziele. Bei falscher Prüfsumme und ausbleibenden Antworten scheitern beide Pfade
+mit denselben drei CMD-96-Versuchen. Kein Hinweis auf ein neu eingeführtes
+Frame-/Checksum-/Baudratenproblem in der Portierung.
+
+### Hardwarewirksamer Unterschied und weiterhin offene Ursache
+
+| Pfad vor dem ersten Positionslesen | Befehlsfolge |
+| --- | --- |
+| old-Follower, auch bei `connect(calibrate=False)` | CMD 68 an, CMD 98 **an**, CMD 96 |
+| Neues Plugin, gültige Kalibrierung im Normalbetrieb | CMD 68 an, CMD 98 **an**, CMD 96 |
+| Neues Plugin, `connect(calibrate=False)` / Diagnose | CMD 68 an, CMD 98 **aus**, CMD 96 |
+
+Die neue Kalibrierung schaltet zusätzlich vor der manuellen Erfassung nochmals
+Torque aus. Diese Änderung folgt der ausdrücklichen Q5-Freigabe. Olds Kalibrierung
+erfasste dagegen nichts, sondern speicherte nur die bekannten Platzhalter.
+
+Der hypothetische Mock, der nur bei Torque-on antwortet, reproduziert einen
+Erfolg für old und einen Timeout im neuen Kalibrierpfad. **Das belegt keine solche
+Eigenschaft der realen Firmware.** Der frühere menschliche Read vor dem neuen
+Torque-off-Befehl hatte unbekannten Anfangs-Torque und reproduzierte old ebenfalls
+nicht vollständig. Auch die neue CMD-1-Versionsabfrage gehört nicht zum alten
+LeRobot-Treiber; ihr Timeout beweist weder Firmwarekompatibilität noch einen Defekt.
+
+Damit bleibt eine Ursache im geänderten Lifecycle möglich. Keine Änderung des
+Kalibrierpfads auf Torque-on und kein Umgehen fehlender Kalibrierung auf Verdacht.
+Der aussagekräftige nächste Hardwarevergleich ist der bekannte old-Aufruf mit
+derselben bestätigten Portzuordnung und vergleichbarem Startzustand; dieser
+normale Teleoperationsaufruf aktiviert Torque und kann den Arm bewegen und wird
+ausschließlich vom Menschen ausgeführt:
+
+```powershell
+cd C:\Users\mario\robot\old
+uv run --locked lerobot-teleoperate --config_path=teleoperate_no_cameras.yaml --robot.port=COM12 --teleop.port=COM11
+```
+
+Vor einem Vergleichslauf am Follower einen vollständigen Neustart einschließlich
+getrennter USB-Versorgung durchführen, damit keine bestehende Bridge-Sitzung das
+Ergebnis verfälscht. Wenn old damit aktuell antwortet, sind seine Logs ein neuer
+Referenzbefund für die Lifecycle-Diagnose. Wenn old ebenfalls scheitert, ist das
+weiterhin kein Beweis für einen Hardwaredefekt. Das reale Vergleichsergebnis
+steht aus.
+
+Zusätzlich bestand die vollständige aktuelle Plugin-Testsuite mit 137 Tests
+(44,89 Sekunden). Zusammen mit den neun direkten Offline-Vergleichen wurden
+146 Prüfungen bestanden. In diesem Arbeitsschritt wurden ausschließlich diese
+Notizen und der ignorierte lokale Prüfhelfer geschrieben; keine Produktions-
+oder Diagnosebefehlsfolge wurde verändert.
+
+## 14. Freigegebene Rohwert-Teleoperation wie in old
+
+Der Nutzer möchte ausdrücklich ohne die bisherige manuelle Kalibrierung wie
+in old teleoperieren. Diese neuere Anweisung autorisiert für den unmittelbaren
+Rohwert-Teleoperationstest einen eigenen Ablauf ohne Messdateien. Der bestehende
+normierte Plugin-/F3A-Betrieb mit Kalibrierpflicht wird dadurch nicht ersetzt.
+
+Olds `calibrate()` hat keine Grenzen oder Nullpunkte gemessen, sondern pauschale
+Einträge mit Bereich 0..4095, Offset 2048 und `drive_mode=0` gespeichert. Seine
+Teleoperation verwendete anschließend direkt Rohpositionen. Daher war damals
+kein manueller Kalibrierdialog erforderlich. Diese Platzhalter eignen sich
+nicht als gemessene SO-101-Referenz für den F3A-Checkpoint.
+
+Implementiert wird `scripts/teleoperate_raw.py`, ausschließlich für menschlich
+gestartete Teleoperation. Das Skript verwendet den bereits bytegleich übernommenen
+Hersteller-Motorbus und die vorhandene feste Mappingfunktion. Es lädt keinen
+alten Checkout und kopiert keine Experimente aus old. Keine Änderungen am
+gepinnten Upstream, Motorbus, normierten Robot-/Teleoperator-Plugin oder Lockfile.
+Ein eigener Rohwertablauf verhindert, dass das Standard-Inferenz- oder
+Recording-Beispiel durch ein verstecktes Skip-Calibration-Flag Rohwerte erhält.
+
+Übernommener Hardwareablauf aus old ohne Kameras:
+
+1. Leader öffnen und Torque-off senden.
+2. Follower öffnen, CMD 68 mit Argument 1 und anschließend Torque-on senden.
+3. Pro Schleifendurchlauf zuerst Follower-Positionen, dann Leader-Positionen lesen.
+4. Schulterspiegelung `4096-pos`, Greifer `2833+(pos-2048)*4` mit Begrenzung
+   1195..2833 sowie allgemeine Rohwertbegrenzung 0..4095 unverändert anwenden.
+5. CMD 97 senden und wie old anschließend CMD 96 lesen. Ein Timeout ausschließlich
+   dieses zusätzlichen Readbacks wird wie im alten `send_action` toleriert.
+6. Beim Ende CMD 68 mit Argument 0 senden und beide Ports schließen. Entsprechend
+   dem Herstellerdefault kein zusätzlicher Follower-Torque-off beim Disconnect.
+
+Die Schleife läuft mit bestmöglich 30 Hz; `--fps` und eine optionale `--duration`
+sind einstellbar. Dies ist keine Zusicherung identischer Windows-Laufzeiten.
+Beide Positionsabfragen müssen vor dem ersten Ziel erfolgreich sein. Fehler
+beim anfänglichen Lesen enthalten Rolle und Port und beenden den Ablauf ohne
+Positionsziel. Cleanup erfolgt auch bei Strg+C und teilweise fehlgeschlagenem
+Bridge-Eintritt. Doppelte/leere Ports und ungültige Zeit-/Frequenzwerte werden
+vor jeder Portöffnung abgelehnt. Keine Kalibrierdateien werden gelesen oder
+geschrieben; keine Platzhalter werden als gültige Normierung ausgegeben.
+
+Menschlicher Start im neuen Repo, nach Prüfung der Portzuordnung und freiem
+Arbeitsbereich; dieser Aufruf aktiviert Torque und kann den Arm bewegen:
+
+```powershell
+uv run --locked python scripts/teleoperate_raw.py --follower-port=COM12 --leader-port=COM11
+```
+
+Das Skript ist ein eigener Ablauf für direkte Teleoperation; es zeichnet keine
+Datasets auf und lädt keine Policy. Für die F3A-Standard-CLIs bleiben die
+Grad-/Prozent-Normierung und deren Messkalibrierung erforderlich. Ob der reale
+COM12-Timeout durch den Wechsel auf die alte Torque-on-Startsequenz behoben wird,
+ist weiterhin offen. Der Agent öffnet auch für diesen Test keinen echten Port.
+
+Prüfergebnis: vollständige Suite **151 bestanden**, davon 14 neue Prüfungen für
+den Rohwertablauf. Zwei getrennte Mock-Ports prüfen die alte Start-/Read-/Write-
+Reihenfolge, konkrete Schulter-/Greifer-Rohziele, zusätzliches Readback und dessen
+Timeout, frühe Readfehler ohne Positionsziele, Strg+C, teilweise fehlgeschlagenen
+Bridge-Eintritt sowie Argumentfehler vor jeder Portöffnung. Die optionale
+Laufzeitgrenze verwendet einen absoluten monotonen Endzeitpunkt. Ruff-Lint,
+Formatprüfung und `git diff --check` bestanden. Der Produktionstreiber bleibt
+bytegleich; ein realer Hardwareerfolg wird aus den Mocks nicht abgeleitet.
+
+## 15. Aktuelle Portzuordnung laut Nutzer
+
+Die neue explizite Zuordnung lautet **Follower COM13, Leader COM14**. Sie ersetzt
+für aktuelle Startbefehle die vorherigen COM12/COM11-Werte und COM19/COM18-
+Platzhalter. Alle vier NexArm-Beispielkonfigurationen, die aktuellen README-
+Befehle, CLI-Hilfebeispiele und der bestehende Parser-Test wurden entsprechend
+angepasst. Historische Diagnosebefunde weiter oben behalten ihre damaligen Ports.
+Die Zuordnung wurde vom Nutzer mitgeteilt; der Agent hat keinen Port geöffnet.
+
+### Ergebnis des menschlichen Rohwert-Teleoperationstests
+
+Der Nutzer startete `teleoperate_raw.py --follower-port=COM13 --leader-port=COM14`.
+Nach gesendetem Follower-Torque-on endet bereits die erste Positionsabfrage mit
+`Follower on COM13: No position reply from NexArm`. Damit behebt das Überspringen
+der Kalibrierung zusammen mit der alten Torque-on-Startfolge den Timeout in
+diesem Lauf nicht. Der tatsächliche Torque- und Bridge-Zustand ist weiter nicht
+bestätigt. Laut Ablauf wurde kein CMD-97-Positionsziel gesendet; der Leader wurde
+geöffnet, aber seine Positionsabfrage noch nicht erreicht.
+
+Ein Problem ausschließlich durch den Kalibrierdialog erklärt diesen Befund
+nicht. Ein Portierungsproblem insgesamt oder eine Hardware-/Firmwareursache ist
+dadurch weder bewiesen noch ausgeschlossen. Weiterhin fehlt ein aktueller
+menschlicher Gegenlauf mit der originalen old-Umgebung auf denselben Ports:
+
+```powershell
+cd C:\Users\mario\robot\old
+uv run --locked lerobot-teleoperate --config_path=teleoperate_no_cameras.yaml --robot.port=COM13 --teleop.port=COM14
+```
+
+Wegen des unbestätigten Bridge-Ausgangs vor diesem Vergleich einen vollständigen
+Follower-Neustart einschließlich getrennter USB-Versorgung vorsehen. Dieser
+normale Teleoperationsaufruf kann den Arm bewegen. Keine weitere Protokoll-,
+Baudraten- oder Timeoutänderung ohne neuen Vergleichsbefund.
+
+Auf den anschließenden ausdrücklichen Wunsch des Nutzers wurde auch
+`old/teleoperate_no_cameras.yaml` direkt auf Follower COM13 und Leader COM14
+gesetzt. Diese konkrete Konfigurationsänderung ist die vom Nutzer angeforderte
+Ausnahme zur bisherigen Read-only-Behandlung von old; seine Treiber und übrigen
+Quelldateien bleiben unverändert. Für den Gegenlauf sind damit keine Port-Overrides
+mehr nötig. `uv run --directory C:\Users\mario\robot\old --locked
+lerobot-teleoperate --config_path=teleoperate_no_cameras.yaml` wählt unabhängig
+vom aktuellen Shell-Ordner die alte Umgebung und deren Konfigurationsdatei.
+Der Agent hat den Hardwareaufruf nicht ausgeführt.
+
+### Originales old scheitert ebenfalls beim Follower-Lesen
+
+Der Nutzer führte den Gegenlauf am 13.11.2026 um 15:43:50 mit `uv run
+--directory C:\Users\mario\robot\old --locked lerobot-teleoperate
+--config_path=teleoperate_no_cameras.yaml` aus. Der Trace bestätigt ausdrücklich
+`old/.venv` und `old/finsh/src`, Follower COM13 und Leader COM14. Beide Ports
+werden geöffnet; anschließend scheitert `robot.get_observation()` in old an
+`read_positions()` mit `No position reply from NexArm`. Cleanup schließt beide
+Ports. Das Lesen der Leader-Positionen und das erste Positionsziel werden laut
+altem Loop noch nicht erreicht.
+
+Damit tritt derselbe Follower-Lesefehler auch ohne die neue Portierung auf. Die
+Logmeldung `connected` bestätigt nur das Öffnen des seriellen Ports und das
+Absenden der Initialisierung, keine erfolgreiche Bridge-/Torque-Antwort. Ein
+Problem speziell mit der neuen Gradnormierung oder der Kalibrierpflicht erklärt
+diesen alten Lauf nicht. Die gemeinsame Transport-/Firmware-/Hardwareursache
+bleibt offen; auch der unveränderte alte Treiber könnte mit der installierten
+Firmware inkompatibel sein. Ein Defekt oder eine konkrete falsche Verdrahtung
+ist durch den Timeout nicht bewiesen.
+
+Nächste Hardwareeingrenzung: sichtbare normale Startanzeige und Anschlüsse des
+Followers prüfen. Die offizielle Anleitung nennt das Originalnetzteil, den
+eingeschalteten Netzschalter und das USB-Type-C-Datenkabel zum Controller. Für
+die genaue Verkabelung verweist sie auf das Video unter 2.3.2 Wiring Instructions.
+Ein Foto der tatsächlich belegten Controlleranschlüsse plus Displayzustand ist
+noch nicht vorhanden. Keine weiteren Änderungen am Treiber aus diesem Log ableiten.
+
+Der Nutzer berichtet anschließend, dass old wieder funktioniert. Welche
+zwischenzeitliche Änderung an Anschluss, Versorgung oder Firmwarezustand den
+Erfolg erklärt, ist nicht bekannt. Für den direkten nächsten Vergleich old
+mit Strg+C beenden, damit die Ports frei sind, und das neue Rohwert-Skript mit
+Follower COM13, Leader COM14 und `--duration=10` menschlich starten. Dabei ist
+keine Kalibrierung erforderlich; der Agent führt den Hardwaretest nicht aus.
+
+Der Nutzer bestätigt den anschließenden Zehn-Sekunden-Lauf des neuen
+`teleoperate_raw.py` mit Follower COM13 und Leader COM14 als erfolgreich
+("geht super"). Damit ist die direkte Rohwert-Teleoperation mit dem übernommenen
+Herstellerablauf im neuen Repo menschlich am Arm bestätigt. Welche vorherige
+Änderung die Timeouts behoben hat, ist weiterhin unbekannt; daraus folgt keine
+Freigabe für spekulative Änderungen an Baudrate, Startzeiten oder Protokoll.
+Die Abnahme des normierten Plugin-Betriebs, der gemessenen Kalibrierung,
+Richtungsvorzeichen und des Recordings bleibt separat offen.

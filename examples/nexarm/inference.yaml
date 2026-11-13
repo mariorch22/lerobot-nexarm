@@ -1,10 +1,10 @@
 # uv run lerobot-rollout --config_path=examples/nexarm/inference.yaml --policy.path=YOUR_ADAPTED_CHECKPOINT
-# Use a checkpoint adapted to this setup. COM port / camera indices are placeholders.
+# Use an adapted checkpoint. Current follower: COM13; recheck port / camera indices for other setups.
 robot:
   type: nexarm_follower
   id: follower
   calibration_dir: calibration/follower
-  port: COM19
+  port: COM13
   baudrate: 1000000
   use_degrees: true
   disable_torque_on_disconnect: false

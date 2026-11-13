@@ -1,10 +1,10 @@
 # From the plugin repo: uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate.yaml
-# COM ports and camera indices are PLACEHOLDERS. Find them with lerobot-find-port / lerobot-find-cameras.
+# Current setup: follower COM13, leader COM14. Recheck ports / camera indices for other setups.
 robot:
   type: nexarm_follower
   id: follower
   calibration_dir: calibration/follower
-  port: COM12
+  port: COM13
   baudrate: 1000000
   use_degrees: true
   disable_torque_on_disconnect: false
@@ -29,7 +29,7 @@ teleop:
   id: leader
   calibration_dir: calibration/leader
   follower_calibration_path: calibration/follower/follower.json
-  port: COM11
+  port: COM14
   baudrate: 1000000
   use_degrees: true
 display_data: false

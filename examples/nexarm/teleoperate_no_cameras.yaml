@@ -1,10 +1,10 @@
-# First teleoperation test after both calibrations. Override the placeholder COM ports on the CLI.
-# uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate_no_cameras.yaml --robot.port=COM12 --teleop.port=COM11
+# First teleoperation test after both calibrations. Current setup: follower COM13, leader COM14.
+# uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate_no_cameras.yaml --robot.port=COM13 --teleop.port=COM14
 robot:
   type: nexarm_follower
   id: follower
   calibration_dir: calibration/follower
-  port: COM19
+  port: COM13
   baudrate: 1000000
   use_degrees: true
   disable_torque_on_disconnect: false
@@ -15,7 +15,7 @@ teleop:
   id: leader
   calibration_dir: calibration/leader
   follower_calibration_path: calibration/follower/follower.json
-  port: COM18
+  port: COM14
   baudrate: 1000000
   use_degrees: true
 display_data: false

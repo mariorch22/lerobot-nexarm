@@ -75,8 +75,8 @@ def test_camera_free_example_and_actual_port_overrides():
         config = draccus.parse(
             TeleoperateConfig,
             config_path=ROOT / "examples" / "nexarm" / "teleoperate_no_cameras.yaml",
-            args=["--robot.port=COM11", "--teleop.port=COM12"],
+            args=["--robot.port=COM13", "--teleop.port=COM14"],
         )
     assert config.robot.cameras == {}
-    assert config.robot.port == "COM11"
-    assert config.teleop.port == "COM12"
+    assert config.robot.port == "COM13"
+    assert config.teleop.port == "COM14"

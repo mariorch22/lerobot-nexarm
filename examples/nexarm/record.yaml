@@ -1,10 +1,10 @@
 # uv run lerobot-record --config_path=examples/nexarm/record.yaml
-# Replace COM ports / camera indices after human enumeration.
+# Current setup: follower COM13, leader COM14. Recheck ports / camera indices for other setups.
 robot:
   type: nexarm_follower
   id: follower
   calibration_dir: calibration/follower
-  port: COM19
+  port: COM13
   baudrate: 1000000
   use_degrees: true
   disable_torque_on_disconnect: false
@@ -29,7 +29,7 @@ teleop:
   id: leader
   calibration_dir: calibration/leader
   follower_calibration_path: calibration/follower/follower.json
-  port: COM18
+  port: COM14
   baudrate: 1000000
   use_degrees: true
 dataset:
