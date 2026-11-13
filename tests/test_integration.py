@@ -64,3 +64,19 @@ def test_example_uses_actual_pinned_cli_schema_without_hardware(name):
         assert config.teleop.follower_calibration_path == Path("calibration/follower/follower.json")
     else:
         assert config.return_to_initial_position is False
+
+
+def test_camera_free_example_and_actual_port_overrides():
+    from lerobot.scripts.lerobot_teleoperate import TeleoperateConfig
+    from lerobot.utils.import_utils import register_third_party_plugins
+
+    register_third_party_plugins()
+    with patch("serial.Serial", side_effect=AssertionError("Hardware access forbidden")):
+        config = draccus.parse(
+            TeleoperateConfig,
+            config_path=ROOT / "examples" / "nexarm" / "teleoperate_no_cameras.yaml",
+            args=["--robot.port=COM11", "--teleop.port=COM12"],
+        )
+    assert config.robot.cameras == {}
+    assert config.robot.port == "COM11"
+    assert config.teleop.port == "COM12"

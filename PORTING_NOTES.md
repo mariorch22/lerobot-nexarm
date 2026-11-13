@@ -616,3 +616,529 @@ Greifer-offen/-geschlossen, `drive_mode` pro Gelenk und das tatsächliche Halten
 beim Verlassen der Bridge. Ebenso ist das Abschalten des zusätzlichen Readbacks
 erst nach Timing-Prüfung am Arm sinnvoll. Keine dieser Eigenschaften wurde mit
 einem echten Gerät getestet oder als bestätigt ausgegeben.
+
+## 10. Rückmeldung aus der menschlichen Einrichtung am 13.11.2026
+
+Die lokale Teleoperate-YAML wurde vom Nutzer bereits auf Follower COM11 und
+Leader COM12 geändert; diese Änderung bleibt erhalten. Der vorgelegte Log zeigt
+eine Portöffnung auf COM11, dann einen Abbruch per KeyboardInterrupt im ersten
+Kalibrierdialog. Es wurde noch keine Referenzposition gelesen und keine neue
+Kalibrierung gespeichert. Der folgende Teleoperate-Versuch scheiterte deshalb
+an der fehlenden `calibration/follower/follower.json`, bevor der Leader-Port
+geöffnet wurde. Daraus folgt noch kein erfolgreicher CMD-96-Positionsvergleich.
+
+Zusätzlich zeigt der Log trotz `--robot.cameras="{}"` weiterhin beide Kameras:
+Der CLI-Override hat das vorhandene YAML-Dictionary am Pin nicht geleert.
+Korrigiert durch eine separate `teleoperate_no_cameras.yaml` mit leerem Dictionary,
+geprüft gegen das echte CLI-Schema einschließlich COM11/COM12-Overrides.
+Keine Änderung am Upstream-Parser. Der Kalibrierdialog verweigert jetzt
+nichtleere Eingaben an seinen ENTER-Bestätigungsprompts, damit hineinkopierte
+Shell-Befehle keinen unbeabsichtigten Nullpunkt speichern. Die vorhandene
+Fehlerbereinigung lässt dabei Torque aus und verlässt die Follower-Bridge.
+Diese Änderungen werden ausschließlich mit Mocks geprüft; keine Agenten-Hardwarezugriffe.
+
+## 11. F3A-Cloud-Einrichtung, Rauchtest und Erkenntnisse aus der Doku (13.11.2026)
+
+Dieser Abschnitt dokumentiert die erste Inbetriebnahme von FLUX 3 Action (F3A) auf einer
+gemieteten Cloud-GPU, einen Rauchtest mit Dummy-Eingaben und die daraus folgenden
+Entscheidungen für Datensammlung, Training und Rollout. Der NexArm war an diesem Test
+nicht beteiligt; alle Werte stammen aus der Cloud-Instanz.
+
+### 11.1 Cloud-Instanz
+
+| Eigenschaft | Wert |
+| --- | --- |
+| Anbieter | vast.ai |
+| GPU | 1× NVIDIA RTX A6000, 49 140 MiB |
+| Standort | Rumänien |
+| Treiber / CUDA | 580.178.04 / CUDA 13.0 (abwärtskompatibel zu den cu128-Wheels) |
+| Speicherplatz | 120 GB (`overlay`, `/`) |
+| Image | `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04` |
+| Kosten | ca. 0,51–0,56 $/h laufend, Speicher und Bandbreite separat |
+| Instanz-ID | 60441095 |
+
+Verwaltung über die vast.ai-Python-SDK mit kleinen Skripten (Suchen, Mieten, Status,
+Löschen). Der API-Key liegt in einer gitignorierten `.env` bzw. über `vastai set api-key`
+lokal, nie im Repo.
+
+Erfahrungen aus der Einrichtung:
+
+- Der Speicherplatz muss beim Mieten explizit gesetzt werden (`disk=120`). Die erste
+  Instanz lief mit dem Default von 32 GB; das reicht für Umgebung plus Gewichte (ca. 25 GB)
+  nicht und lässt sich nachträglich nicht vergrößern. Sie wurde gelöscht.
+- Bei über die SDK erstellten Instanzen wurde der im Account hinterlegte SSH-Schlüssel
+  nicht automatisch übernommen. Abhilfe: `vastai attach ssh <INSTANZ-ID> "<public key>"`.
+- Hosts in Festlandchina meiden: Hugging Face ist dort nicht erreichbar. Ebenso meiden:
+  CMP-170HX-Mining-Karten und umgebaute 48-GB-RTX-4090.
+- Für Offline-Tests und Training ist der Standort egal. Für Live-Sessions mit dem Arm
+  später einen Host in Asien wählen (Latenz zum Labor in Shenzhen).
+- Auf der Instanz wird ein eigener Hugging-Face-Token nur mit Leserechten verwendet und
+  nach dem Projekt gelöscht. Der zwischenzeitlich im Chat sichtbare vast.ai-API-Key
+  wird erneuert.
+- Nicht genutzte Instanzen stoppen (`vastai stop instance <ID>`): GPU-Kosten entfallen,
+  Speicher wird weiter berechnet, Umgebung und Gewichte bleiben erhalten.
+
+### 11.2 Installation auf der Instanz
+
+Exakt nach der BFL-Anleitung „SO-101 with LeRobot“, aber am Projekt-Pin:
+
+- LeRobot geklont und auf `2f05d8f64d62a865c368a9fdf0ba3d8423e28035` ausgecheckt
+  (gleicher Pin wie das Plugin; nicht der jeweils neueste `main`).
+- `uv venv --python 3.12`
+- `torch==2.11.0`, `torchvision==0.26.0` aus dem cu128-Index
+- `uv pip install -e '.[training,flux3,peft,diffusion]'`
+- `natten==0.21.6+torch2110cu128`
+- `ffmpeg` per apt
+
+Prüfung: `2.11.0+cu128 True NVIDIA RTX A6000`.
+
+Das eigenständige BFL-Repo `flux-action` wird für den LoRA-Weg nicht benötigt (siehe 11.6).
+
+### 11.3 Modellpakete
+
+| Paket | Revision | Umfang |
+| --- | --- | --- |
+| `black-forest-labs/flux-3-action-so101` | `c9e13b2aca6a0a472b3ea03fd90cff32d3e85849` | Policy, gespeicherte Prozessoren, Statistiken, ca. 13,9 GB |
+| `black-forest-labs/flux-3-action-base` | `62878e2925e59b7a89ec14463ce89932624c490d` | nur `video_vae.safetensors` und `text_encoder/*`, ca. 11,4 GB |
+
+Beide Repos sind zugangsbeschränkt und brauchen jeweils eine eigene Freigabe auf
+Hugging Face. Die Freigabe für das SO-101-Paket gilt nicht automatisch für das Basismodell.
+
+Ausgelesene Konfiguration des SO-101-Pakets:
+
+```
+camera_keys:    ['observation.images.scene', 'observation.images.wrist']
+camera_layout:  side_by_side
+fps:            30.0
+chunk_size:     42
+n_action_steps: 32
+```
+
+**Wichtiger Abgleich:** Die Vertragsprüfung in Abschnitt 8 lief gegen die Revision
+`e2584b2698e3b88368854976e354af87ec9893c6`. Die BFL-Doku und der Download auf der
+Instanz verwenden `c9e13b2aca6a0a472b3ea03fd90cff32d3e85849`. Bis zur erneuten Prüfung
+ist offen, ob Einheiten, Gelenkreihenfolge und Quantile in beiden Revisionen identisch
+sind. Siehe offene Punkte in 11.8.
+
+### 11.4 Rauchtest
+
+Skript `smoke_test.py` (ins Repo übernehmen unter `scripts/cloud/smoke_test.py`):
+
+- Config aus `models/flux-3-action-so101` laden, `video_vae_id` und `text_encoder_id`
+  auf die lokalen Dateien in `models/flux-3-action-base` setzen, `device=cuda`.
+- `Flux3Policy.from_pretrained(...)` und `make_pre_post_processors(...)` wie im
+  Inferenzbeispiel der Integrations-Doku.
+- Dummy-Beobachtung: zwei Zufallsbilder 3×480×640 als `scene` und `wrist`,
+  Zustand `[0, 0, 0, 0, 0, 50]` (fünf Gelenke in Grad, Greifer 50 %),
+  Instruktion `"pick up the blue block"`.
+- Drei Steuertakte mit `post(policy.select_action(pre(obs)))`, Zeitmessung mit
+  `torch.cuda.synchronize()`, Spitzenspeicher mit `torch.cuda.max_memory_allocated()`.
+- Danach Policy und Prozessoren zurücksetzen, Text-Encoder (Qwen) per
+  `policy.frozen.text_encoder.cpu()` auf die CPU verschieben, Messung wiederholen.
+
+Ergebnisse:
+
+| Messgröße | Text-Encoder auf GPU | Text-Encoder auf CPU |
+| --- | ---: | ---: |
+| Laden (einmalig) | 83,1 s | – |
+| Speicher nach dem Laden | 23,6 GiB | – |
+| Takt 0 (Planung eines Chunks) | 2,764 s | 2,018 s |
+| Takt 1 und 2 (aus der Warteschlange) | 0,005–0,006 s | 0,006 s |
+| Spitzenspeicher während Inferenz | 24,2 GiB | 15,9 GiB |
+
+Ausgegebene Aktionen (Auszug):
+
+```
+Takt 0: [-0.096,  0.260,  0.384, -0.144,  0.027, 44.288]
+Takt 1: [-0.156,  0.673,  0.792, -0.124,  0.014, 43.073]
+Takt 2: [-0.211,  1.229,  1.371,  0.063, -0.104, 39.871]
+```
+
+Bewertung:
+
+- Die Pipeline aus Laden, Preprocessing, Policy und Postprocessing läuft fehlerfrei.
+- Jede Aktion hat sechs Werte in der erwarteten Konvention: fünf Gelenke in Grad mit
+  kleinen, gleichmäßigen Änderungen pro Takt, Greifer im Bereich von ca. 40–44 %.
+- Beide Durchläufe liefern identische Werte. Die Vorhersage ist mit diesem Setup
+  reproduzierbar, was spätere Vergleiche erleichtert.
+- Takt 0 im ersten Durchlauf enthält zusätzlich das einmalige Kodieren der Instruktion
+  und das Aufwärmen der GPU. Die realistische Planungszeit auf der A6000 liegt eher bei
+  ca. 2 s pro Chunk.
+- Die Bilder sind Zufallsrauschen. Die Aktionen sagen inhaltlich nichts über die
+  Eignung für den NexArm aus.
+
+Folgerungen:
+
+- **Speicher:** Eine RTX 5090 mit 32 GB reicht, auch mit Text-Encoder auf der GPU.
+  Eine Karte mit 24 GB ist beim Laden (23,6 GiB Spitze) zu knapp, da das Verschieben
+  des Text-Encoders laut Doku den Spitzenwert beim Laden nicht senkt.
+- **Ablauf am Arm (synchron):** ca. 1,07 s Bewegung (32 Aktionen bei 30 Hz), dann ca. 2 s
+  Pause zum Neuplanen, bei Cloud-Betrieb zusätzlich die Netzwerklatenz. Für Tests
+  ausreichend; schneller mit neuerer GPU (L40S, RTX 5090) und mit
+  `--policy.compile_model=true` (noch nicht getestet).
+- Mit einer lokalen RTX 5090 am Arm wäre der Standard-Runner `lerobot-rollout` direkt
+  nutzbar und die Cloud-Brücke (11.5) entbehrlich.
+
+### 11.5 Erkenntnisse aus der Integrations-Doku (`docs/source/flux3.mdx`)
+
+**Inferenz und Zustand der Prozessoren**
+
+- Pro Steuertakt läuft eine Beobachtung durch Preprocessor, `select_action` und
+  Postprocessor. Die Policy plant intern einen Chunk und gibt pro Takt eine Aktion
+  aus der Warteschlange zurück.
+- Die Prozessoren sind zustandsbehaftet. Das Modell sagt für die fünf Armgelenke Deltas
+  voraus (`action_representation: delta`), der Greifer bleibt absolut. Der Postprocessor
+  integriert die Deltas zu absoluten Befehlen: Der erste Befehl einer Episode orientiert
+  sich am gemessenen Zustand, jeder weitere am vorherigen Befehl.
+- Policy und beide Prozessoren müssen an jeder Episodengrenze und nach manuellem
+  Eingreifen zurückgesetzt werden. Der synchrone LeRobot-Runner macht das selbst.
+
+**Kein asynchroner Betrieb**
+
+- Laut Doku wird RTC bzw. asynchrone Inferenz für F3A nicht unterstützt. LeRobots
+  eigener Policy-Server mit asynchroner Inferenz fällt damit für die Cloud-Anbindung aus.
+
+**Konsequenz: Design der Cloud-Brücke (noch umzusetzen)**
+
+- Eine Anfrage pro Steuertakt über das Internet ist zu langsam (30 Roundtrips pro
+  Sekunde mit zwei Bildern).
+- Die Doku beschreibt eine Chunk-Vorhersage mit `predict_action_chunk`, bei der der
+  zuletzt gesendete Befehl als `observation.command_history` mitgegeben wird. Er dient
+  als Anker für die Integration der Deltas, ohne in die Konditionierung des Modells
+  einzugehen.
+- Geplantes Design: Der lokale Client schickt nur beim Neuplanen Bilder, Gelenkwerte und
+  den letzten gesendeten Befehl. Der Server führt Preprocessing, Chunk-Vorhersage und
+  Postprocessing aus und liefert 32 absolute Befehle zurück. Der Client führt sie mit
+  30 Hz aus. Der Server hält keinen Zustand zwischen Anfragen, was ihn robust gegen
+  Verbindungsabbrüche macht.
+- Vor der Umsetzung im gepinnten Code (`processor_flux3.py`) prüfen, ob der
+  Postprocessor einen ganzen Chunk korrekt in einem Schritt integriert oder ob er
+  schrittweise pro Aktion aufgerufen werden muss.
+
+**Speicher**
+
+- `policy.frozen.text_encoder.cpu()` verschiebt etwa 8,3 GiB auf die CPU. Nicht
+  zwischengespeicherte Instruktionen werden dann langsamer kodiert, ihre Embeddings
+  aber gecacht. Ein späteres `policy.to(...)` holt den Text-Encoder zurück auf die GPU.
+
+### 11.6 Embodiment-Frage und Entscheidung
+
+Der Doku-Abschnitt „Training other embodiments“ sagt: Für Roboter ohne eigenen
+Checkpoint startet man vom Basismodell im eigenständigen Repo `flux-action` und definiert
+eigene Action- und Conditioning-Heads, Kameralayout, Aktionsrepräsentation und
+Normalisierung. Gleiche Dimensionen allein machen die Heads eines anderen Roboters nicht
+wiederverwendbar.
+
+Für den NexArm bedeutet das: Die Nutzung des SO-101-Checkpoints mit NexArm-Daten in
+SO-101-Konvention ist nicht der offiziell vorgesehene Weg. Beim LoRA-Rezept werden die
+Action- und Conditioning-Heads allerdings vollständig mittrainiert, was den Abstand
+teilweise auffangen kann.
+
+**Entscheidung:** Das Projekt verwendet ausschließlich LoRA auf dem SO-101-Checkpoint.
+Volles Finetuning oder eigene Heads über `flux-action` sind nicht vorgesehen. Das
+Risiko, dass der Embodiment-Abstand zu groß ist, ist bekannt. Es wird anhand des
+Offline-Tests, des Zero-Shot-Tests und der ersten LoRA-Ergebnisse am Entscheidungspunkt
+(ca. Mitte Dezember) bewertet. Als Rückfallebene für das RL-Projekt dient eine kleinere
+Policy (z. B. ACT oder SmolVLA) mit derselben Infrastruktur.
+
+### 11.7 Vorgaben für Datensammlung, Training und Rollout
+
+**Kameras**
+
+- Der Checkpoint erwartet `observation.images.scene` (feste Szenenkamera) und
+  `observation.images.wrist` (Handgelenkkamera). Ältere Bezeichnungen wie `top` oder
+  `front` beschreiben dieses Paket nicht.
+- **Entscheidung:** Die feste Kamera heißt in den NexArm-YAMLs ab sofort `scene`
+  statt `front`, und zwar vor der ersten Datenaufnahme. Damit entfällt eine spätere
+  `rename_map`.
+- Jedes Bild wird auf 256×256 verkleinert und zu einem 512×256-Bild zusammengesetzt:
+  Szene links, Handgelenk rechts. Die 640×480-Bilder werden dabei auf ein Quadrat
+  gestaucht; das ist unkritisch, solange Training und Einsatz identisch sind.
+- Eine `rename_map` ändert nur Schlüssel und erkennt keine physisch vertauschte Kamera.
+  Vor jeder Session das zusammengesetzte Bild prüfen. USB-Kabel der Kameras beschriften,
+  weil sich Indizes beim Umstecken ändern können.
+- Die Szenenkamera wird starr montiert und bewegt sich zwischen Datensammlung und
+  Einsatz nicht. Ganzer Arbeitsbereich und Arm im Bild, konstantes Licht, kein
+  Gegenlicht, keine Menschen im Bild.
+
+**Datensatz**
+
+- LeRobot-v3-Datensatz mit 30 Hz, sechs absoluten kommandierten Aktionen, sechs
+  gemessenen Zustandswerten und einer Instruktion pro Episode.
+- Gelenkreihenfolge: shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll,
+  gripper. Armgelenke in Grad, Greifer in Prozent. Das Plugin liefert genau das; keine
+  zweite Normalisierung einbauen.
+- Die Roboter-ID und Kalibrierung bei der Aufnahme müssen später beim Rollout identisch
+  sein.
+- Referenzgröße: BFL nutzte für „put the blue box into the container“ etwa 200
+  teleoperierte Demos. Planung: 100–200 Demos pro Aufgabenvariante.
+- Instruktionen auf Englisch, kurz und pro Aufgabe immer gleich formuliert.
+
+**Training (Preset `examples/flux3/lora.json`)**
+
+- Policy-Pfad auf `models/flux-3-action-so101`, Encoder per
+  `--policy.video_vae_id` und `--policy.text_encoder_id` auf `models/flux-3-action-base`.
+- Vor dem Start prüfen: Rang und Alpha 32, Lernraten 1e-4 (Adapter) und 5e-4 (Heads),
+  BF16, Gradient Checkpointing, EMA-Decay 0,999.
+- Die Normalisierungsstatistiken des Pakets bleiben fix. Andere Statistiken würden eine
+  eigens vorbereitete Basis mit passenden Prozessoren erfordern.
+- `steps` zählt Mikroschritte: Bei Batch 2 und Akkumulation 4 entsprechen
+  10 000 Schritte nur 2 500 Optimizer-Updates.
+- Neue Adapter entstehen über die `peft`-Sektion der Config. `--policy.use_peft=true`
+  dient nur zum Laden eines vorhandenen Adapters.
+- Fürs Training eine Karte mit 80 GB (A100) einplanen; Spitzenspeicher dort messen.
+- Nach dem Training `pretrained_model` und `pretrained_model_ema` mit denselben
+  Aufgaben, Startlagen und Einstellungen am Arm vergleichen. EMA ist nicht automatisch
+  besser.
+
+**Rollout**
+
+- Synchroner Runner (`--strategy.type=base --inference.type=sync`), Modell und Arm auf
+  derselben Maschine. Für die Cloud-GPU wird die Brücke aus 11.5 benötigt.
+- Vor jedem Rollout beide Live-Kamerabilder prüfen. Koordinatenlimits in der
+  Hiwonder-Software setzen, reduzierte Geschwindigkeit, eine Person am Netzschalter.
+
+### 11.8 Offene Punkte und nächste Schritte
+
+1. Kameranamen in `teleoperate.yaml`, `record.yaml` und `inference.yaml` von `front`
+   auf `scene` umstellen, vor der ersten Aufnahme.
+2. `scripts/inspect_checkpoint_contract.py` gegen die Revision
+   `c9e13b2aca6a0a472b3ea03fd90cff32d3e85849` erneut ausführen und bestätigen, dass
+   Einheiten, Gelenkreihenfolge und Quantile mit Abschnitt 8 übereinstimmen.
+   Abweichungen hier dokumentieren.
+3. Hardware-Abnahme fortsetzen (siehe Abschnitt 10): Kalibrierung mit SO-101-Referenzpose,
+   Bereiche, Greiferrichtung, Vorzeichen pro Gelenk, Torque-Verhalten beim Verlassen der
+   Bridge, Teleoperation, Timing der Schleife.
+4. Zehn Test-Episoden aufnehmen, im Visualizer prüfen und als privaten Datensatz auf
+   Hugging Face hochladen.
+5. Offline-Test auf der Instanz: F3A auf den eigenen Episoden, vorhergesagte gegen
+   tatsächliche Befehle. Erster belastbarer Hinweis auf den Embodiment-Abstand.
+6. Cloud-Brücke nach 11.5 implementieren (Server auf der Instanz, Client am Laptop),
+   nach Prüfung des Postprocessor-Verhaltens bei ganzen Chunks.
+7. Zero-Shot-Test am echten Arm: „pick up the blue block“ gegen „pick up the red block“,
+   je zehn Versuche, mit Sicherheitsvorkehrungen.
+8. `--policy.compile_model=true` testen und die Planungszeit erneut messen.
+9. `smoke_test.py` unter `scripts/cloud/` ins Repo übernehmen.
+10. Klären, ob im Labor oder in der Gruppe eine RTX 5090 verfügbar ist. Damit entfiele
+    die Cloud-Brücke für den Rollout.
+
+## 12. Fehlender Bewegungsbereich bei der Follower-Kalibrierung
+
+Der Nutzer meldet nach den Messabschnitten am 13.11.2026 einen Abbruch bei der
+Bereichsvalidierung von `shoulder_pan`. Der Treiber begrenzt Rohwerte auf
+0..4095 und der Recorder hält Min <= Max; in diesem Ablauf bedeutet der Fehler
+deshalb Min == Max, also keine erfasste Wertänderung der Basis. Der konkrete
+Rohwert wurde im ursprünglichen Log nicht angezeigt. Die Ursache (Gelenk nicht
+bewegt, weiterhin blockiert, andere Port-/Armzuordnung oder unveränderte
+Firmware-Rückmeldung) ist damit noch nicht geklärt. Keine gültige neue JSON
+wurde gespeichert. Insbesondere wird Torque-off nicht von der Hardware bestätigt.
+
+Der Dialog zeigt jetzt die Referenz-Rohwerte und während jedes Messabschnitts
+`raw`, `min`, `max` des gewählten Gelenks, gedrosselt auf maximal fünf Anzeigen
+pro Sekunde. Am Abschnittsende wird dessen Bereich ausgegeben. Bei Min == Max
+wird sofort mit dem konkreten Wert abgebrochen, statt fünf weitere Gelenke
+vermessen zu lassen. Die Validierungsfehlermeldung enthält ebenfalls den Wert.
+Keine Grenzwerte geraten oder freigegeben, keine Protokollbefehle geändert;
+Fehlerbereinigung und Kalibrierungspflicht bleiben bestehen. Prüfung ausschließlich
+mit Mocks, keine Agentenverbindung zum realen Arm.
+
+Nachfolgender menschlicher Versuch um 12:10 Uhr auf COM11: Referenz-Rohwerte
+`[2040, 697, 1215, 2433, 672, 1192]`. Der Nutzer berichtet, die Basis von Hand
+drehen zu können; der Messabschnitt liefert dennoch `shoulder_pan` Min=Max=2040.
+Eine Serial-Antwort liegt damit vor, eine aktualisierte Messung des tatsächlich
+bewegten Gelenks ist noch nicht nachgewiesen. Als nächstes die COM-Zuordnung
+durch USB-Abziehen genau des bewegten Arms eindeutig feststellen; die bisherige
+Zuordnung COM11=Follower / COM12=Leader war noch nicht physisch bestätigt.
+Danach gegebenenfalls gegen Hiwonders Positionsanzeige vergleichen.
+
+Zusätzliche Hardwarefrage: Der gelesene Greiferwert 1192 liegt drei Ticks unter
+dem vorgegebenen Rohbereich `[1195,2833]`. Ist das eine Rückmeldetoleranz am
+Endpunkt, eine andere Gerätezuteilung oder ein abweichender tatsächlicher Bereich?
+Keine Toleranz, andere Grenze oder künstliche Kalibrierung implementieren,
+bevor das am richtigen Arm geklärt ist. Die vorhandenen Schreibgrenzen bleiben bestehen.
+
+Portzuordnung per menschlichem USB-Abziehtest: Nach Abziehen genau des zuvor
+bewegten Arms verschwindet COM12; die reine Portenumeration zeigt nur noch COM11.
+Der bewegte Arm ist damit COM12, während die bisherigen Kalibrierungsversuche
+COM11 ausgelesen haben. Ob der abgezogene Arm der beabsichtigte Follower oder
+Leader ist, muss noch bestätigt werden; die funktionalen Rollen werden aus
+diesem Abziehtest allein nicht abgeleitet. Keine automatische Vertauschung der
+Gerätekonfiguration und keine neue Serial-Verbindung durch den Agenten.
+
+Der Nutzer bestätigt anschließend, dass der abgezogene Arm der Aufgabenarm und
+nicht der von Hand geführte Steuerarm ist. Damit lautet die bestätigte Zuordnung:
+**Follower COM12, Leader COM11**. Die lokale `teleoperate.yaml` sowie die
+Aufrufbeispiele für den kamerafreien Test wurden entsprechend korrigiert.
+Die früheren konstanten Werte und der Greiferwert 1192 kamen demnach vom Leader,
+während der Follower bewegt wurde. Sie belegen keine Abweichung des
+Follower-Greiferbereichs. Die Kalibrierung des tatsächlichen Followers auf COM12
+und der Positionsvergleich stehen weiterhin aus.
+
+Erster Versuch auf dem bestätigten Follower-Port COM12 um 12:16 Uhr:
+Portöffnung erfolgreich, aber der erste CMD-96-Read nach Bridge-Eintritt und
+Torque-off endet nach den vorhandenen drei Versuchen mit `No position reply`.
+Es wurde kein Rohwert und keine neue Kalibrierung gespeichert. Die aktuelle
+Enumeration sieht beide Ports weiterhin. Der Treiber ist erneut SHA-256-geprüft
+bytegleich zur Herstellerfassung. Weder Öffnen des Ports noch das Senden von
+CMD 68/98 bestätigt deren Umsetzung durch die Hardware. Als nächste menschliche
+Prüfung externe Stromversorgung und anschließend gegebenenfalls Positionslesen
+im Hiwonder-PC-Tool klären. Die Herstellerdokumentation nennt für Follower-Probleme
+Portzuordnung, Unterstützung von CMD 68 in der Firmware und reguläres Aus-/Einschalten.
+Firmware-/Bridge-Zustand und Stromversorgung sind hier noch nicht nachgewiesen;
+keine Protokoll-, Timing- oder Firmwareänderung auf Verdacht.
+
+Der Nutzer bestätigt externe Versorgung und eingeschalteten Arm. In den lokalen
+NexArm-Unterlagen wurde kein zusätzlicher verpflichtender Modusschalter und
+keine Firmwarequelle gefunden, die den Timeout erklärt. Gegenüber dem alten
+normalen Betriebsablauf liegt der neue Kalibrierpfad vor dem Lesen bei Torque-off;
+ob diese Firmware dabei Positionen meldet, ist weiterhin nicht hardwarebestätigt.
+Es wird nicht auf Verdacht Torque-on ausprobiert oder ein Timeout erhöht.
+
+`scripts/diagnose_nexarm.py` steht für einen menschlich gestarteten Test bereit:
+gleicher Follower-Connect mit Bridge und Torque-off, dreimal die vorhandene
+Positionslesefunktion, Ausgabe von TX und empfangenen Parserpuffern. Der originale
+Treiber bleibt unverändert; der Diagnose-Subclass ergänzt ausschließlich Logs.
+Keine Kalibrierungsdatei erforderlich, kein CMD 97 und kein Torque-on. Cleanup
+verwendet den bestehenden Follower-Disconnect. Mocks prüfen Antwort und Timeout
+sowie die Befehlsfolge. Der Agent führt keinen echten Diagnoseaufruf aus.
+
+Ergebnis des menschlichen Diagnoselaufs auf COM12: korrekte TX-Frames für
+CMD 68, Torque-off und insgesamt neun CMD-96-Anfragen; keine RX-Puffer während
+der Lesefenster, dreimal Timeout, Cleanup mit Torque-off und Bridge-Ausgang.
+Das ist bislang kein Prüfsummenbefund: Dem Parser wurden in den Lesefenstern
+keine Bytes zugeführt. Außerhalb dieser Fenster bzw. vor einem Input-Buffer-Reset
+ankommende Bytes wurden vom bisherigen Logger nicht vollständig erfasst.
+
+Offene Hypothese: Der ESP32 könnte durch die Portöffnung neu starten oder
+vorübergehend nicht empfangsbereit sein. Der Hersteller-Treiber wartet nur
+100 ms, bevor der erste Bridge-Befehl gesendet wird; eine lange Pause am
+späteren Kalibrierprompt würde einen vorher verlorenen Bridge-Befehl nicht nachholen.
+Die [pySerial-FAQ](https://pyserial.readthedocs.io/en/latest/appendix.html#faq)
+dokumentiert allgemein verlorene frühe Writes nach RTS-/DTR-bedingtem Reset;
+[Espressif](https://docs.espressif.com/projects/esptool/en/latest/esp32/advanced-topics/boot-mode-selection.html#automatic-bootloader)
+beschreibt entsprechende Steuerleitungen auch für CH340x. Das beweist nicht,
+dass diese NexArm-Platine betroffen ist, und begründet keine Verdrahtungsänderung.
+
+Als expliziter menschlicher Vergleichstest unterstützt nur das Diagnoseskript
+`--startup-wait=2`: zusätzliche Pause nach Portöffnung vor CMD 68, Default 0
+(bisheriges Verhalten). Serielle DTR-/RTS-Zustände werden nur angezeigt, nicht
+gesetzt. Rahmen, Baudrate, Parser, Antworttimeouts und Torque-off bleiben gleich;
+kein CMD 97, kein Torque-on. Mocks prüfen die Position der Pause vor dem ersten
+Bridge-Write und beide Antwortfälle; reale Ursache und Ergebnis stehen noch aus.
+Der Produktionstreiber bleibt bytegleich zur Herstellerfassung.
+
+Der menschliche Vergleich mit `--startup-wait=2` zeigt ebenfalls neun erfolglose
+CMD-96-Anfragen ohne RX-Puffer. Eine zusätzliche Startpause allein hat den Fehler
+somit nicht behoben; das schließt etwa einen dauerhaft gehaltenen Reset über
+Steuerleitungen oder andere Firmwarezustände nicht aus.
+
+Zur Frage nach einem Portierungsfehler wurde erneut direkt mit `old/finsh`
+verglichen: Der Serial-Treiber ist in old, hiwonder-fork und Plugin SHA-256-identisch,
+aber die höhere Befehlsfolge unterscheidet sich absichtlich. Olds normaler
+Follower-Betrieb sendet Torque-on, bevor er Positionswerte liest. Die neue, in Q5
+freigegebene Kalibrierung liest erst nach Torque-off. Software-Normalisierung und
+aktuelle HF-Policy-Prozessoren wurden beim vorliegenden Timeout noch nicht erreicht.
+Die Mock-Serial-Implementierung antwortet standardmäßig unabhängig vom Torquezustand;
+sie belegt daher keine Firmwareunterstützung für Lesen bei Torque-off.
+
+Offen ist somit auch ein Zusammenhang mit der portierten Lifecycle-Sequenz.
+Kein automatischer Wechsel des Kalibrierpfads auf Torque-on. Für einen expliziten
+menschlichen Vergleich bietet nur das Diagnoseskript `--probe-before-torque-off`:
+nach Bridge-Eintritt einmal vor dem Torque-off-Befehl lesen, dann den bestehenden
+Torque-off-/Read-Ablauf fortsetzen. Anfangs-Torque ist unbekannt; kein Torque-on
+und kein CMD 97 werden gesendet. Mocks simulieren gezielt Antworten vor Torque-off
+und ausbleibende Antworten danach, damit diese beiden Befunde getrennt sichtbar sind.
+Ohne dieses Flag bleibt der bisherige Diagnoseablauf erhalten. Reales Ergebnis offen.
+
+Menschlicher Test mit `--startup-wait=2 --probe-before-torque-off`: bereits die
+drei Reads vor dem neuen Torque-off-Befehl bleiben ohne RX; danach ebenfalls
+neun Reads ohne RX, `reply received=False`, `Result: 0/3`. Damit ist der neue
+Torque-off-Befehl in diesem Lauf nicht als alleinige Ursache belegt. Der
+vorbestehende Hardware-Torque-Zustand war unbekannt, daher wurde damit nicht
+Olds explizites Torque-on reproduziert. Ein Portierungsfehler ist durch den
+negativen Test weiterhin nicht vollständig ausgeschlossen.
+
+Als nächstes unabhängige Herstellerabfrage statt weiterer Protokolländerungen:
+Die [offizielle NexArm-Anleitung](https://wiki.hiwonder.com/projects/NexArm/en/imitation-learning-version/docs/1_Getting_Started_NexArm.html)
+beschreibt NexArm.exe mit `USB Serial`, `Read Firmware Version`, `Read Pos` und
+einem HEX-RX/TX-Fenster. Auf COM12 nur diese Lesefunktionen prüfen lassen und
+Antwort-/Fehlerausgabe vergleichen. Keine Zentrierung, Factory-Reset oder
+Firmware-Neuprogrammierung aus dieser Anleitung ableiten. Das Vergleichsergebnis
+steht aus; der Agent hat weiterhin keinen echten seriellen Port geöffnet.
+
+Der Nutzer möchte die Diagnose weiter im Terminal durchführen. Der offizielle
+Download für NexArm.exe wurde gefunden, aber weder heruntergeladen noch gestartet.
+Nächster expliziter Diagnosevergleich: `--inactive-control-lines` fordert im
+Diagnoseskript DTR=False und RTS=False bereits vor `open()` an. Die installierte
+pySerial-Windows-Implementierung übernimmt diese Vorbelegung beim Öffnen; der
+Hersteller-Treiber nutzt ansonsten die Defaults True/True. Die Hypothese eines
+durch Steuerleitungen gehaltenen Resets ist allgemein von Espressif dokumentiert,
+für diese Platine aber unbestätigt. OS-/Treiber-Glitches beim Öffnen bleiben möglich.
+
+Nur der opt-in Diagnosepfad erzeugt Serial zunächst mit `port=None`, setzt die
+beiden Zustände und öffnet anschließend den bestätigten Port. Baudrate, Frames,
+Torque-off, Parser und Antworttimeouts bleiben gleich. Default und Produktion
+verwenden weiter die ursprüngliche Portöffnung. Mocks prüfen, dass beide
+Zustände vor dem Öffnen inaktiv sind, kein Torque-on und kein CMD 97 gesendet
+werden und der Port beim Beenden geschlossen wird. Reales Ergebnis steht aus.
+
+Der menschliche Lauf mit `--startup-wait=2 --inactive-control-lines` bleibt
+ebenfalls ohne RX während aller neun CMD-96-Lesefenster, Ergebnis 0/3. Diese
+Steuerleitungsvariante hat das Problem somit nicht behoben.
+
+### Hersteller-Firmwarequelle als unabhängige Referenz
+
+Aus dem offiziellen Ressourcenbereich wurden ausschließlich zur Quelltextprüfung
+die Archive [Follower Nex_Arm.rar](https://drive.google.com/file/d/1f1zThhDJPDNiAFfawNGOMsocId3-73Nb/view)
+und [Leader Nex_Arm.zip](https://drive.google.com/file/d/1ZFPaZdt81vEQezh8lLOJKDGZfeo7cZOk/view)
+bezogen. Ausgewählte C++-Dateien liegen lokal im ignorierten Verzeichnis
+`reference/vendor-firmware/`; nichts wurde ausgeführt, kompiliert oder geflasht.
+Die installierte Firmwareversion des Arms ist dadurch weiterhin nicht bekannt.
+Follower-Archiv SHA-256:
+`da03881e33e98791901032948476d4ea6affcea1a2a4bbecc7fdc796cb42eb90`.
+Leader-Archiv SHA-256:
+`66fc508a678f5e02f05b1b8889e1776d55d087b4852893d802b2b5321ffb5a5b`.
+
+Konkrete Befunde in der veröffentlichten Follower-Quelle:
+
+- `system_task_handle.cpp:3458` initialisiert USB-Serial mit 1.000.000 Baud;
+  `CommProtocol.cpp` bestätigt unseren Frameaufbau und die vollständige Prüfsumme.
+  Baudrate und gesendeter CMD-68-Eintritt entsprechen somit dieser Quelle.
+- `system_task_handle.cpp:2938` beantwortet CMD 68 mit Argument 1 zunächst
+  explizit mit einem CMD-68-Frame und Argument 1, bevor die Bridge aktiviert wird.
+  Die frühere Diagnoseausgabe, Bridge-Befehle hätten grundsätzlich kein ACK,
+  war zu pauschal und wurde korrigiert: Der bestehende Treiber liest dieses
+  mögliche ACK nicht aus. Aus den bisherigen Logs ist Bridge-Eintritt unbewiesen.
+- `register_system_task` zeigt nach Serial-Initialisierung bereits 2,5 Sekunden
+  Displayanimation sowie weitere Initialisierung. Zwei Sekunden Startpause
+  schließen einen Reset-/Startzeitzusammenhang deshalb nicht aus.
+- Im normalen Modus definiert `Global.h:16` CMD 1 als Firmware-Versionsabfrage.
+  `system_task_handle.cpp:2177` liest die AT32-Version und antwortet mit sechs
+  Bytes: ESP32 major/minor/patch und AT32 major/minor/patch. Anfangswerte für
+  die AT32-Version sind 0.0.0; das bestätigt keine erfolgreiche AT32-Abfrage.
+  Das reine Anfrageframe lautet `ff ff ff 02 01 fd`.
+- **Offene Hardwarefrage:** `enter_lerobot_bridge_mode()` ersetzt den normalen
+  USB-Callback. Der neue `bridge_usb_callback()` behandelt CMD 68 nicht lokal,
+  sondern leitet unbekannte Befehle an AT32 weiter. Der normale CMD-68-Ausgang
+  würde dagegen `ESP.restart()` auslösen. Ob die tatsächlich installierte
+  Firmware unseren bisherigen Ausgangsbefehl wirksam verarbeitet, muss am Arm
+  geklärt werden. Kein stiller Host-Protokoll-Fix und kein automatisches Flashen.
+
+Nur das menschlich gestartete Diagnoseskript erhält `--controller-probe`:
+Es öffnet den Transport ohne Robot-Lifecycle, sendet ausschließlich CMD 1 und
+wartet bis zu drei Sekunden auf eine Firmwareantwort. Es sendet weder CMD 68
+noch CMD 96/97/98. Bekannte Antwortformen mit drei oder sechs Bytes werden
+angezeigt; andere Frames werden mitprotokolliert und nicht als Version ausgegeben.
+Der Port wird auch bei Fehlern geschlossen. Der Test setzt einen normalen
+Firmwarestart nach vollständigem Aus-/Einschalten einschließlich getrennter
+USB-Versorgung voraus; er ersetzt keine fehlende Kalibrierung. Die explizite
+Startpause von fünf Sekunden und inaktive Steuerleitungen bleiben auf diesen
+Diagnoseaufruf beschränkt. Produktionstreiber, Normierung und Firmware bleiben
+unverändert. Mocks prüfen das exakte Anfrageframe, Antwort mit vorangestelltem
+Statusframe, Timeout, unbekannte Payload und Cleanup ohne weitere Befehle.
+Reales Ergebnis der Firmwareabfrage steht aus.
+
+Softwareprüfung dieser Ergänzung: 39 Diagnose-/Gerätetests mit gesperrten echten
+Serial-Ports bestanden; Ruff-Lint und Formatprüfung bestanden. Der SHA-256 des
+Produktionstreibers ist weiterhin unverändert. Die Tests bestätigen keine reale
+Controllerantwort.

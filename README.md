@@ -66,12 +66,20 @@ uv run lerobot-calibrate --teleop.type=nexarm_leader --teleop.port=COM18 --teleo
 
 Die interaktive Routine:
 
+Jeden Shell-Befehl einzeln am `PS ...>`-Prompt starten. Während die Kalibrierung
+auf ENTER wartet, keine weiteren `uv run ...`-Befehle einfügen: Das ist ein
+Programmeingabedialog. Strg+C bricht ab; dabei wird keine neue Kalibrierung gespeichert.
+Erst nach erfolgreichem Abschluss beider Kalibrierungen Teleoperation starten.
+
 1. Arm in die SO-101-Mittel-/Referenzpose bringen und ENTER drücken. Die sechs
    Rohpositionen werden als hostseitige Nullpunkte `homing_offset` gespeichert.
    Die Pose ist am realen Arm abzugleichen; es werden keine Servo-Offsets geschrieben.
 2. Nacheinander jedes Gelenk langsam durch seinen benutzbaren Bereich bewegen.
    ENTER startet bzw. beendet die Aufnahme pro Gelenk. Alle sechs Achsen werden
    während der Aufnahme überwacht, kein Gelenk wird automatisch gefahren.
+   Die Anzeige `raw`, `min`, `max` zeigt die gemessenen Werte des aktuellen Gelenks.
+   Ändert sich dessen Wert nicht, bricht die Routine direkt nach diesem Gelenk ab.
+   Bei blockiertem Gelenk keine Kraft anwenden; Portzuordnung und Torque-Freigabe klären.
 3. Ein Sprung um mehr als 2048 Ticks zwischen Abtastungen wird als möglicher
    Encoderübergang `4095↔0` behandelt: Abbruch mit Fehlermeldung statt Wrap-Korrektur.
    Auch zu schnelle Bewegungen können diesen konservativen Abbruch auslösen.
@@ -131,6 +139,17 @@ Hardwarewerte in Grad/Prozent an LeRobot und an aufgezeichnete Datasets weiter.
 Zuerst Ports/Indizes anpassen, beide Kalibrierungen durchführen und Richtungen
 am Arm prüfen. Die Beispiele verwenden denselben Kalibrierungspfad wie oben.
 
+Für den ersten Test ohne Kameras gibt es eine eigene Konfiguration. Mit den
+per USB-Abziehtest zugeordneten Ports Follower COM12 / Leader COM11:
+
+```powershell
+uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate_no_cameras.yaml --robot.port=COM12 --teleop.port=COM11
+```
+
+Ein CLI-Override mit `--robot.cameras="{}"` leert die bereits aus der YAML
+gelesenen Kameraeinträge am gepinnten Parser nicht zuverlässig. Dafür die
+separate Konfiguration verwenden; COM-Zuordnung bei anderer Hardware neu prüfen.
+
 ```powershell
 uv run lerobot-teleoperate --config_path=examples/nexarm/teleoperate.yaml
 uv run lerobot-record --config_path=examples/nexarm/record.yaml
@@ -166,6 +185,39 @@ F3A-Anpassung und Policy-Server sind nicht Bestandteil dieses Pakets.
 - **Leader-Timeout / Checksum:** Der bekannte Firmwarefehler verlangt Akzeptanz
   sowohl der vollständigen als auch der kurzen Prüfsumme. Diese Toleranz bleibt
   unverändert. Debugtext wird übersprungen; Positionslesen versucht dreimal.
+- **Follower antwortet beim Kalibrieren nicht:** Bei bestätigtem Follower-Port
+  und eingeschalteter externer Versorgung kann ein Mensch den Transport ausgeben:
+  `uv run --locked python scripts/diagnose_nexarm.py --port=COM12`.
+  Arm vorher abstützen. Der Aufruf verwendet denselben Bridge-/Torque-off-Pfad,
+  sendet keine Positionsziele und benötigt keine Kalibrierung. Er zeigt TX sowie
+  empfangene RX-Bytes und sendet beim Beenden den Bridge-Ausgangsbefehl. Ein Timeout ohne RX
+  und empfangene, aber nicht parsebare Frames sind unterschiedliche Befunde.
+  Für einen ausdrücklichen Vergleichstest bei vermutetem Neustart durch die
+  Portöffnung: `uv run --locked python scripts/diagnose_nexarm.py --port=COM12 --startup-wait=2`.
+  Nur dieser Diagnoseaufruf wartet zusätzlich vor dem ersten Bridge-Befehl;
+  das normale Treiberverhalten wird dadurch nicht geändert, RTS/DTR werden
+  nicht umgeschaltet. Das ist eine unbestätigte Diagnosehypothese, kein Firmware-Fix.
+  Mit zusätzlichem `--probe-before-torque-off` wird ausdrücklich einmal vor dem
+  Torque-off-Befehl gelesen, um den Einfluss dieses Befehls zu untersuchen.
+  Der anfängliche Hardware-Torque-Zustand ist dabei unbekannt; der Test sendet
+  weiterhin weder Torque-on noch Positionsziele. Diese Option ist kein
+  Kalibrierungsmodus und verändert den Produktionstreiber nicht.
+  `--inactive-control-lines` ist ein weiterer ausdrücklicher Diagnosevergleich:
+  DTR und RTS werden vor dem Öffnen auf False gesetzt, um einen möglichen
+  RTS-/DTR-bedingten Reset zu untersuchen. Beispiel:
+  `uv run --locked python scripts/diagnose_nexarm.py --port=COM12 --startup-wait=2 --inactive-control-lines`.
+  Default bleibt die ursprüngliche Portöffnung. Die Wirksamkeit dieser Option
+  auf der konkreten NexArm-Platine ist noch nicht nachgewiesen; sie ist kein
+  Firmware-Update und keine Änderung des installierten Robotertreibers.
+  Bleibt der Follower stumm, kann die USB-Verbindung unabhängig von der Servo-Bridge
+  geprüft werden. Follower abstützen, ausschalten und USB abziehen; dann wieder
+  einschalten, USB anschließen und den Start abwarten. Im normalen Firmwaremodus:
+  `uv run --locked python scripts/diagnose_nexarm.py --port=COM12 --controller-probe --startup-wait=5 --inactive-control-lines`.
+  Dieser Modus sendet ausschließlich die Herstellerabfrage CMD 1 für die
+  Firmwareversion, keine Bridge-, Torque- oder Positionsbefehle. Eine Version
+  bestätigt die Controllerkommunikation; ein Timeout identifiziert die installierte
+  Firmware nicht. In einer bereits aktiven Bridge ist diese Abfrage nicht verlässlich.
+  Der Aufruf ist ein Hardwaretest und wird nicht vom Agenten ausgeführt.
 - **Port busy:** Hiwonder-Tool, Arduino-Monitor und andere LeRobot-Prozesse schließen.
 - **Kamerabilder veraltet:** Der Windows-Fallback wartet per `async_read` auf ein
   neues Bild. Andere Kameraprogramme schließen und Indizes/`fourcc` prüfen.

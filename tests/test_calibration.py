@@ -148,3 +148,31 @@ def test_interactive_two_stage_measurement_records_raw_reference_and_ranges(monk
     assert result["gripper"].homing_offset == 2048
     assert result["gripper"].range_min == 1195
     assert result["gripper"].range_max == 2833
+
+
+def test_shell_command_at_reference_prompt_cannot_save_accidental_zero(monkeypatch):
+    bus = Mock()
+    monkeypatch.setattr("builtins.input", lambda _: "uv run lerobot-teleoperate --robot.port=COM11")
+    with pytest.raises(CalibrationError, match="not PowerShell"):
+        record_calibration(bus, {})
+    bus.read_positions.assert_not_called()
+
+
+def test_stalled_joint_shows_raw_values_and_aborts_before_remaining_joints(monkeypatch, capsys):
+    bus = Mock()
+    bus.read_positions.return_value = [2000] * 6
+    prompt = Mock(return_value="")
+    monkeypatch.setattr("builtins.input", prompt)
+    monkeypatch.setattr("lerobot_robot_nexarm.calibration.enter_pressed", lambda: True)
+    with pytest.raises(CalibrationError, match=r"shoulder_pan: no raw position change.*min=max=2000"):
+        record_calibration(bus, {})
+    output = capsys.readouterr().out
+    assert "shoulder_pan: raw=2000 min=2000 max=2000" in output
+    assert "shoulder_pan: measured min=2000, max=2000" in output
+    assert prompt.call_count == 2  # Only reference and first-joint prompts; no five wasted measurements.
+
+
+def test_validation_reports_actual_unchanged_encoder_value(calibration):
+    calibration["shoulder_pan"] = replace(calibration["shoulder_pan"], range_min=2000, range_max=2000)
+    with pytest.raises(CalibrationError, match=r"shoulder_pan: no raw position change.*min=max=2000"):
+        validate_calibration(calibration)

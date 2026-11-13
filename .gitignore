@@ -10,3 +10,4 @@ dist/
 outputs/
 calibration/
 reference/flux3-so101/
+reference/vendor-firmware/

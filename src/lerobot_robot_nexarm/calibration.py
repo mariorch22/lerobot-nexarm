@@ -38,6 +38,11 @@ def validate_calibration(calibration: dict[str, MotorCalibration], *, follower: 
             raise CalibrationError(f"{name}: all calibration fields must be integers.")
         if c.id != joint_id or c.drive_mode not in (0, 1):
             raise CalibrationError(f"{name}: expected id={joint_id} and drive_mode 0 (+) or 1 (-).")
+        if c.range_min == c.range_max:
+            raise CalibrationError(
+                f"{name}: no raw position change recorded (min=max={c.range_min}). "
+                "Check the arm/port assignment and torque release; do not force a blocked joint."
+            )
         if not 0 <= c.range_min < c.range_max <= 4095:
             raise CalibrationError(f"{name}: require 0 <= range_min < range_max <= 4095.")
         if not c.range_min <= c.homing_offset <= c.range_max:
@@ -166,17 +171,51 @@ class RangeRecorder:
 def record_calibration(
     bus: NexArmMotorsBus, previous: dict[str, MotorCalibration]
 ) -> dict[str, MotorCalibration]:
-    input("With torque OFF, support the arm in the SO-101 middle/reference pose. Press ENTER to save zero. ")
+    _confirm_enter_only(
+        "With torque OFF, support the arm in the SO-101 middle/reference pose. Press ENTER to save zero. "
+    )
     recorder = RangeRecorder(bus.read_positions())
-    for name in JOINT_NAMES:
-        input(f"Prepare to move {name} slowly through its usable range; press ENTER to start. ")
+    print(
+        "Reference raw positions: "
+        + ", ".join(f"{name}={raw}" for name, raw in zip(JOINT_NAMES, recorder.zero, strict=True))
+    )
+    for i, name in enumerate(JOINT_NAMES):
+        _confirm_enter_only(f"Prepare to move {name} slowly through its usable range; press ENTER to start. ")
         print(f"Recording {name} (all joints monitored). Move by hand; press ENTER to finish this joint.")
+        next_display = 0.0
         while True:
             recorder.update(bus.read_positions())
+            now = time.monotonic()
+            if now >= next_display:
+                print(
+                    f"\r{name}: raw={recorder.previous[i]:4d} "
+                    f"min={recorder.minimum[i]:4d} max={recorder.maximum[i]:4d}",
+                    end="",
+                    flush=True,
+                )
+                next_display = now + 0.2
             if enter_pressed():
                 break
             time.sleep(0.02)
+        print(f"\n{name}: measured min={recorder.minimum[i]}, max={recorder.maximum[i]}")
+        if recorder.minimum[i] == recorder.maximum[i]:
+            raise CalibrationError(
+                f"{name}: no raw position change recorded (min=max={recorder.minimum[i]}). "
+                "Calibration aborted before saving. Check the arm/port assignment and torque release; "
+                "do not force a blocked joint."
+            )
+    print("Measured raw ranges:")
+    for i, name in enumerate(JOINT_NAMES):
+        print(f"  {name}: zero={recorder.zero[i]}, min={recorder.minimum[i]}, max={recorder.maximum[i]}")
     return recorder.result(previous)
+
+
+def _confirm_enter_only(prompt: str) -> None:
+    if input(prompt).strip():
+        raise CalibrationError(
+            "Expected ENTER only. This is the calibration dialog, not PowerShell. "
+            "Calibration aborted; run shell commands only after the PS prompt returns."
+        )
 
 
 class CalibrationMixin:
