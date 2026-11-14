@@ -135,6 +135,11 @@ uv run --with mujoco python cloud/client.py --task "put the small box on top of 
   Die simulierte Zeit stimmt trotzdem: Jeder Takt rechnet 1/30 s Physik.
 - Mit `--execute` bewegt sich nur der simulierte Arm.
 
+Ohne GPU eine Bewegung sehen: `uv run cloud/server.py --mock-sweep --port 8011` starten und
+den Client mit `--url http://127.0.0.1:8011` aufrufen. Dieser Mock fährt langsam zwischen
+zwei Stellungen hin und her. Er ist nur für die Simulation gedacht; mit dem echten Arm und
+`--execute` würde er den Arm bewegen.
+
 ## Lokal ohne GPU testen
 
 ```powershell

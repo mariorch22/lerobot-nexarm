@@ -70,6 +70,29 @@ class MockModel:
         return [list(request.frames[-1].state)] * self.n_action_steps
 
 
+class SweepModel(MockModel):
+    """Mock with a visible test motion for the simulated arm. Never use it with the real arm.
+
+    It moves slowly from the measured state towards one of two poses and switches the
+    pose every five seconds.
+    """
+
+    name = "mock sweep"
+    poses = ([35.0, 10.0, 35.0, 70.0, 0.0, 100.0], [-35.0, -10.0, 10.0, 45.0, 0.0, 0.0])
+    step = [0.5, 0.5, 0.5, 0.5, 0.5, 3.0]  # per tick: 15 degrees per second, gripper 90 per second
+
+    def predict(self, request: PredictRequest) -> list[list[float]]:
+        target = self.poses[int(time.monotonic() / 5) % 2]
+        position = list(request.frames[-1].state)
+        commands = []
+        for _ in range(self.n_action_steps):
+            position = [
+                p + max(-s, min(s, t - p)) for p, t, s in zip(position, target, self.step, strict=True)
+            ]
+            commands.append(position)
+        return commands
+
+
 class Flux3Model:
     """The SO-101 checkpoint with its saved processors, loaded as in the LeRobot F3A docs."""
 
@@ -162,14 +185,17 @@ def create_app(load_model) -> FastAPI:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--mock", action="store_true", help="no model, repeat the state 32 times")
+    parser.add_argument(
+        "--mock-sweep", action="store_true", help="no model, slow test motion (simulation only!)"
+    )
     parser.add_argument("--adapter", type=Path, help="LoRA adapter directory (optional)")
     parser.add_argument("--text-encoder-on-cpu", action="store_true")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     import uvicorn
 
-    if args.mock:
-        load_model = MockModel
+    if args.mock or args.mock_sweep:
+        load_model = SweepModel if args.mock_sweep else MockModel
     else:
 
         def load_model():

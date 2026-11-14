@@ -62,6 +62,16 @@ def test_image_decoding_and_history_padding(server):
     assert [f.state[0] for f in server.pad_frames(frames * 4, 8)] == [1, 2, 0, 1, 2, 0, 1, 2]
 
 
+def test_sweep_mock_moves_in_small_steps_from_the_measured_state(server):
+    state = [0.0, 0.0, 0.0, 0.0, 0.0, 50.0]
+    frame = server.Frame(image_scene="a", image_wrist="b", state=state)
+    commands = server.SweepModel().predict(server.PredictRequest(task="x", frames=[frame]))
+    assert len(commands) == 32
+    steps = np.abs(np.diff([state, *commands], axis=0))
+    assert steps[:, :5].max() <= 0.5 and steps[:, 5].max() <= 3.0  # no jump, also not on the first command
+    assert steps.sum() > 10  # it really moves
+
+
 def test_mock_server_returns_32_commands(server):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
