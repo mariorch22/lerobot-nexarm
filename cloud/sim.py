@@ -7,10 +7,12 @@ is an assumption (see ASSUMPTIONS below).
 The arm model is not part of this repo. Clone https://github.com/khanhthanhdev/lerobot-nexarm
 (with `git lfs pull --include "sim/assets/**"`) and pass its sim/description/mjcf/scene.xml.
 
-ASSUMPTIONS, not measured at the real arm:
-- 0 degrees on every arm joint is the CAD home pose of the model, with positive direction
-  as in the model. The real calibration may use another zero and other signs.
-- Gripper 0 is closed and 100 is fully open, as on the SO-101.
+ASSUMPTIONS. They are guesses that place the arm inside the value range the SO-101
+checkpoint was trained on (its dataset_statistics.json); nothing here is measured:
+- shoulder_lift is 90 with the upper arm vertical and grows when it leans forward.
+- elbow_flex is 90 with the forearm at a right angle and reaches 180 fully stretched.
+- shoulder_pan, wrist_flex and wrist_roll are 0 in the CAD home pose, directions as in the model.
+- Gripper 0 is closed and 54 is fully open.
 """
 
 import math
@@ -31,8 +33,11 @@ JOINTS = [
     "joint_5_link_4_to_link_5",
     "right_jaw_slide_joint",
 ]
-JAW_OPEN = 0.0255  # metres of jaw travel at gripper 100
-START = [0.0, -0.9, 18.3, 61.0, 0.0, 100.0]  # the model's "ready" pose, gripper open
+JAW_OPEN = 0.0255  # metres of jaw travel when fully open
+GRIPPER_OPEN = 54.0  # gripper value when fully open
+SIGN = [1, -1, -1, 1, 1]  # model units -> direction of the MuJoCo joint
+OFFSET = [0.0, 90.0, 90.0, 0.0, 0.0]  # model units in the CAD home pose
+START = [0.0, 120.0, 110.0, 60.0, 0.0, 40.0]  # leaning over the table, gripper mostly open
 HEIGHT, WIDTH = 480, 640
 
 
@@ -71,7 +76,7 @@ def build_model(scene: Path) -> mujoco.MjModel:
 
 
 class MujocoRobot:
-    """Same interface as the follower: degrees and gripper 0..100 in, images and state out."""
+    """Same interface as the follower: degrees and gripper value in, images and state out."""
 
     def __init__(self, scene: Path, video: Path | None = None, fps: float = 30.0):
         self.model = build_model(scene)
@@ -84,9 +89,15 @@ class MujocoRobot:
         self.frames = []
 
     def to_sim(self, values: list[float]) -> np.ndarray:
-        """Degrees and gripper percent -> radians and jaw travel, clipped to the joint limits."""
-        targets = [math.radians(v) for v in values[:5]] + [values[5] / 100 * JAW_OPEN]
+        """Model units -> radians and jaw travel, clipped to the joint limits."""
+        targets = [math.radians(s * (v - o)) for v, s, o in zip(values[:5], SIGN, OFFSET, strict=True)]
+        targets.append(values[5] / GRIPPER_OPEN * JAW_OPEN)
         return np.clip(targets, self.limits[:, 0], self.limits[:, 1])
+
+    def from_sim(self, positions) -> list[float]:
+        """Radians and jaw travel -> model units."""
+        values = [s * math.degrees(p) + o for p, s, o in zip(positions[:5], SIGN, OFFSET, strict=True)]
+        return [*values, float(positions[5]) / JAW_OPEN * GRIPPER_OPEN]
 
     def connect(self):
         self.renderer = mujoco.Renderer(self.model, HEIGHT, WIDTH)
@@ -115,8 +126,7 @@ class MujocoRobot:
         return self.renderer.render().copy()
 
     def get_observation(self) -> dict:
-        angles = self.data.qpos[self.qpos]
-        state = [math.degrees(a) for a in angles[:5]] + [float(angles[5]) / JAW_OPEN * 100]
+        state = self.from_sim(self.data.qpos[self.qpos])
         scene, wrist = self.render("scene"), self.render("wrist")
         if self.video is not None:
             self.frames.append(np.hstack([scene, wrist]))
@@ -126,5 +136,4 @@ class MujocoRobot:
         targets = self.to_sim([float(action[key]) for key in KEYS])
         self.data.ctrl[:] = targets
         mujoco.mj_step(self.model, self.data, self.steps)
-        sent = [math.degrees(t) for t in targets[:5]] + [float(targets[5]) / JAW_OPEN * 100]
-        return dict(zip(KEYS, sent, strict=True))  # what was really commanded, after clipping
+        return dict(zip(KEYS, self.from_sim(targets), strict=True))  # really commanded, after clipping

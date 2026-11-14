@@ -129,8 +129,9 @@ uv run --with mujoco python cloud/client.py --task "put the small box on top of 
 
 - Die Simulation prüft die Schleife, die Sicherheitslogik und grob die Bewegungsrichtungen.
   Ob das Modell die Aufgabe am echten Arm löst, zeigt sie nicht.
-- Zwei Annahmen sind nicht am Arm gemessen: 0° ist die CAD-Grundstellung des Modells mit
-  dessen Drehrichtungen, und Greifer 100 bedeutet offen.
+- Nullstellung und Greiferbereich der Simulation sind geraten. Sie sind so gewählt, dass
+  der Arm im Wertebereich liegt, auf dem der SO-101-Checkpoint trainiert wurde (Details
+  in `cloud/sim.py`).
 - Die Simulation läuft langsamer als Echtzeit (auf dem Laptop etwa 18 Takte pro Sekunde).
   Die simulierte Zeit stimmt trotzdem: Jeder Takt rechnet 1/30 s Physik.
 - Mit `--execute` bewegt sich nur der simulierte Arm.

@@ -138,6 +138,11 @@ stammt aus `github.com/khanhthanhdev/lerobot-nexarm` und liegt uneingecheckt in
 
   Die Simulation startete mit `shoulder_lift` −1° und `elbow_flex` 18°, also weit außerhalb.
   Auch die Aufnahmen vom 13.11. liegen außerhalb (`shoulder_lift` −49 bis 28°).
+- Zweiter Versuch mit verschobener Nullstellung (`shoulder_lift` und `elbow_flex` 90° in
+  der CAD-Grundstellung, Greifer bis 54, Start mitten im Trainingsbereich): Der Arm
+  streckte sich in vier Plänen flach nach vorn auf den Tisch und fuhr nicht zu den Boxen.
+  Die Verschiebung ist geraten; welche Pose bei BFL welchem Winkel entspricht, ist
+  unbekannt. Weiteres Raten an Vorzeichen bringt wenig.
 - Die LeRobot-Doku sagt dazu, dass diese Werte zur Kalibrierung von BFLs eigenem Arm
   gehören und keine allgemeine SO-101-Kalibrierung sind. Vorgesehen ist ein LoRA-Training
   auf eigenen Daten mit durchgehend gleicher Kalibrierung.

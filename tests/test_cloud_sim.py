@@ -25,7 +25,7 @@ def test_simulated_arm_follows_commands_and_clips_them():
         assert observation["scene"].shape == observation["wrist"].shape == (480, 640, 3)
         assert [observation[key] for key in sim.KEYS] == pytest.approx(sim.START, abs=1.0)
 
-        target = [20.0, 20.0, 40.0, 70.0, 10.0, 50.0]
+        target = [20.0, 100.0, 120.0, 70.0, 10.0, 20.0]
         for step in range(60):  # two seconds, like two thirds of a plan and its successor
             command = [s + (t - s) * (step + 1) / 60 for s, t in zip(sim.START, target, strict=True)]
             robot.send_action(dict(zip(sim.KEYS, command, strict=True)))
@@ -34,9 +34,7 @@ def test_simulated_arm_follows_commands_and_clips_them():
         reached = robot.get_observation()
         assert [reached[key] for key in sim.KEYS] == pytest.approx(target, abs=3.0)
 
-        sent = robot.send_action(dict(zip(sim.KEYS, [999.0, 0, 0, 0, 0, 150.0], strict=True)))
-        assert sent["shoulder_pan.pos"] == pytest.approx(135.0) and sent["gripper.pos"] == pytest.approx(
-            100.0
-        )
+        sent = robot.send_action(dict(zip(sim.KEYS, [999.0, 90, 90, 0, 0, 150.0], strict=True)))
+        assert sent["shoulder_pan.pos"] == pytest.approx(135.0) and sent["gripper.pos"] == pytest.approx(54.0)
     finally:
         robot.disconnect()
