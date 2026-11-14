@@ -134,6 +134,17 @@ uv run cloud/deploy.py down
 uv run cloud/deploy.py up --adapter outputs/lora/nexarm_lora/pretrained_model
 ```
 
+Ohne Roboter prüfen, ob ein Adapter etwas gelernt hat (Server muss laufen):
+
+```powershell
+uv run python cloud/replay_eval.py --dataset outputs/datasets/nexarm_f3a_stack_boxes_v1 --episodes 14 15 16 17
+```
+
+Das Skript spielt dem Modell aufgezeichnete Momente vor und vergleicht seine 32 geplanten
+Befehle mit denen des Menschen. `hold` ist der Fehler, wenn der Arm einfach stehen bliebe;
+ein brauchbares Modell liegt deutlich darunter. Die Episoden 14 bis 17 hält das Training
+zurück. Ein kleiner Fehler beweist nicht, dass der Arm die Aufgabe löst.
+
 - `train` mietet oder verwendet die Instanz, installiert wie `up`, startet aber keinen
   Server, lädt das Dataset hoch und startet das Training in der tmux-Sitzung `train`. Es
   läuft ohne offenes Terminal weiter. Log: `/workspace/train.log`.
