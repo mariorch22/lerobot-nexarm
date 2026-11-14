@@ -59,6 +59,20 @@ def test_train_script_follows_the_recipe_and_rejects_shell_characters():
         deploy.train_script("data; rm -rf /", "run", steps=None, resume=False)
 
 
+def test_training_table_condenses_the_log_and_names_checkpoints():
+    line = "INFO 11:13:19 ot_train.py:894 step:{} smpl:20 loss:{} grdn:3.6 lr:1.0e-04 video_mse:0.1 action_mse:{}"
+    log = "\n".join(line.format(step, 1 / step, 2 / step) for step in range(20, 2020, 20))
+    log += "\nINFO ot_train.py:900 Eval loss on held-out episodes: 0.31\nTraining: 100%|###| 2000/2000"
+    table = deploy.training_table(log, rows=10).splitlines()
+    assert table[0].split() == ["step", "loss", "action_mse", "video_mse"]
+    assert 10 <= len([row for row in table if row.strip()[:1].isdigit()]) <= 12
+    assert table[1].split()[0] == "20" and "2000" in table[-4]  # first and last training line are kept
+    assert table[-1].endswith("Eval loss on held-out episodes: 0.31")
+    assert "no evaluation line" in deploy.training_table(line.format(20, 0.5, 0.4))
+
+    assert deploy.checkpoint(None) == "last" and deploy.checkpoint(3000) == "003000"
+
+
 def test_directories_survive_the_tar_stream_used_for_uploads(tmp_path):
     import subprocess
     import tarfile

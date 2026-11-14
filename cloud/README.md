@@ -149,6 +149,10 @@ zurück. Ein kleiner Fehler beweist nicht, dass der Arm die Aufgabe löst.
   Server, lädt das Dataset hoch und startet das Training in der tmux-Sitzung `train`. Es
   läuft ohne offenes Terminal weiter. Log: `/workspace/train.log`.
 - `logs` zeigt die Speicherbelegung der GPU und folgt dem Log.
+- `curves` speichert das Log lokal und druckt den Verlauf als Tabelle: Trainingsfehler in
+  etwa 20 Zeilen, darunter jede Auswertung auf den zurückgehaltenen Episoden.
+- `--step N` bei `fetch` und `up --adapter-run` wählt statt des letzten Stands den nach N
+  Mikroschritten, zum Beispiel `--step 8000`.
 - `fetch` lädt den letzten gespeicherten Stand (normal und EMA) nach `outputs/lora/<run>`.
   Gespeichert wird alle 500 Mikroschritte und am Ende.
 - Ein abgebrochenes Training setzt `train --dataset … --resume` fort.

@@ -13,6 +13,7 @@ LoRA training on the same instance (see docs/LORA.md):
     uv run cloud/deploy.py train --dataset outputs/datasets/NAME    upload the dataset, start training
                                  (--steps 40 for a short trial run)
     uv run cloud/deploy.py logs      GPU memory and the live training log
+    uv run cloud/deploy.py curves    training and held-out errors as a table, log saved locally
     uv run cloud/deploy.py fetch     download the trained adapter; do this before `down --destroy`
     uv run cloud/deploy.py up --adapter outputs/lora/nexarm_lora/pretrained_model   serve with the adapter
     uv run cloud/deploy.py up --adapter-run nexarm_lora    the same for a run still on the instance
@@ -133,6 +134,29 @@ def train_script(dataset: str, run: str, steps: int | None, resume: bool, batch_
         f"  {arguments[-1]}",
     ]
     return "\n".join(lines) + "\n"
+
+
+def training_table(log: str, rows: int = 20) -> str:
+    """Condense a LeRobot training log: evenly spaced training lines, then every evaluation line."""
+    train = [dict(re.findall(r"(\w+):(\S+)", line)) for line in log.splitlines() if " step:" in line]
+    train = [entry for entry in train if "loss" in entry]
+    picked = train[:: max(1, len(train) // rows)]
+    if train and picked[-1] is not train[-1]:
+        picked.append(train[-1])  # always show where the training ended
+    lines = ["  step      loss  action_mse  video_mse"]
+    lines += [
+        f"{e['step']:>6}  {e['loss']:>8}  {e.get('action_mse', '-'):>10}  {e.get('video_mse', '-'):>9}"
+        for e in picked
+    ]
+    evaluations = [line.strip() for line in log.splitlines() if "eval" in line.lower() and "loss" in line]
+    return "\n".join(
+        [*lines, "", "Held-out episodes:", *(evaluations or ["  no evaluation line in the log yet"])]
+    )
+
+
+def checkpoint(step: int | None) -> str:
+    """Directory name of a saved training state: the newest one, or the one after `step` microsteps."""
+    return "last" if step is None else f"{step:06d}"
 
 
 def api_health(port: int) -> dict | None:
@@ -300,7 +324,15 @@ class Deployment:
             stdin=hf_token.encode() + b"\n",
         )
 
-    def up(self, max_price: float, local_port: int, redeploy: bool, adapter: Path | None, run: str | None):
+    def up(
+        self,
+        max_price: float,
+        local_port: int,
+        redeploy: bool,
+        adapter: Path | None,
+        run: str | None,
+        step: int | None = None,
+    ):
         if run is not None and not re.fullmatch(r"[\w.-]+", run):
             fail(f"run name '{run}' may only contain letters, digits, '.', '_', '-'")
         if adapter is not None and not (adapter / "adapter_config.json").is_file():
@@ -309,23 +341,31 @@ class Deployment:
             fail(f"adapter directory name '{adapter.name}' may only contain letters, digits, '.', '_', '-'")
         instance = self.connect(max_price)
         try:
-            self.serve(instance, local_port, redeploy, adapter, run)
+            self.serve(instance, local_port, redeploy, adapter, run, step)
         except BaseException:
             print(
                 f"\nInstance {instance['id']} is still running and billed. Run `deploy.py down` to stop it."
             )
             raise
 
-    def serve(self, instance: dict, local_port: int, redeploy: bool, adapter: Path | None, run: str | None):
+    def serve(
+        self,
+        instance: dict,
+        local_port: int,
+        redeploy: bool,
+        adapter: Path | None,
+        run: str | None,
+        step: int | None = None,
+    ):
         if self.ssh("tmux has-session -t train", check=False, quiet=True) == 0:
             fail(
                 "a training runs on the instance; the server would take its GPU memory. See `deploy.py logs`."
             )
         running = self.ssh("curl -fs http://127.0.0.1:8000/health", check=False, quiet=True) == 0
         if run is not None:  # an adapter trained on this instance, no upload needed
-            remote = f"/workspace/lerobot/outputs/{run}/checkpoints/last/pretrained_model"
+            remote = f"/workspace/lerobot/outputs/{run}/checkpoints/{checkpoint(step)}/pretrained_model"
             if self.ssh(f"test -d {remote}", check=False, quiet=True) != 0:
-                fail(f"run '{run}' has no saved checkpoint on the instance")
+                fail(f"run '{run}' has no checkpoint '{checkpoint(step)}' on the instance")
             self.setup(f"SERVER_ARGS='--adapter {remote}'")
         elif adapter is not None:
             self.upload_dir(adapter, "/workspace/adapters")
@@ -400,16 +440,31 @@ class Deployment:
         except KeyboardInterrupt:
             print("\nStopped watching. The training continues on the instance.")
 
-    def fetch(self, run: str, out: Path):
+    def fetch(self, run: str, out: Path, step: int | None = None):
         self.connect(None)
-        last = f"/workspace/lerobot/outputs/{run}/checkpoints/last"
+        last = f"/workspace/lerobot/outputs/{run}/checkpoints/{checkpoint(step)}"
         if self.ssh(f"test -d {last}/pretrained_model", check=False, quiet=True) != 0:
-            fail(f"run '{run}' has no saved checkpoint yet (it saves every 500 steps and at the end)")
+            self.ssh(f"ls /workspace/lerobot/outputs/{run}/checkpoints", check=False)
+            fail(f"run '{run}' has no checkpoint '{checkpoint(step)}' (saved ones are listed above)")
         self.ssh(f"du -shL {last}/pretrained_model*")
         self.download(last, "pretrained_model*", out)
         print(
             f"Saved to {out}. Serve it with: uv run cloud/deploy.py up --adapter {out / 'pretrained_model'}"
         )
+
+    def curves(self, out: Path):
+        """Save the training log locally and print how the errors developed."""
+        self.connect(None)
+        result = subprocess.run(
+            [*self.ssh_command(), "cat /workspace/train.log"], stdin=subprocess.DEVNULL, capture_output=True
+        )
+        if result.returncode:
+            fail("no training log on the instance")
+        log = result.stdout.decode(errors="replace").replace("\r", "\n")
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "train.log").write_text(log, encoding="utf-8")
+        print(training_table(log))
+        print(f"\nFull log: {out / 'train.log'}")
 
     def down(self, destroy: bool):
         instance = self.instance()
@@ -430,7 +485,7 @@ class Deployment:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("command", choices=["up", "status", "down", "train", "logs", "fetch"])
+    parser.add_argument("command", choices=["up", "status", "down", "train", "logs", "curves", "fetch"])
     parser.add_argument("--max-price", type=float, default=1.0, help="rental limit in $/h (default 1.0)")
     parser.add_argument("--port", type=int, default=8000, help="local tunnel port (default 8000)")
     parser.add_argument("--redeploy", action="store_true", help="re-upload server.py and rerun the setup")
@@ -443,18 +498,21 @@ def main():
     parser.add_argument("--batch-size", type=int, default=2, help="with train: 1 fits into 32 GB (default 2)")
     parser.add_argument("--resume", action="store_true", help="with train: continue an existing run")
     parser.add_argument("--out", type=Path, help="with fetch: target (default outputs/lora/<run>)")
+    parser.add_argument("--step", type=int, help="with fetch or up --adapter-run: saved state after N steps")
     args = parser.parse_args()
     if args.command == "train" and args.dataset is None:
         parser.error("train needs --dataset")
     deployment = Deployment()
     if args.command == "up":
-        deployment.up(args.max_price, args.port, args.redeploy, args.adapter, args.adapter_run)
+        deployment.up(args.max_price, args.port, args.redeploy, args.adapter, args.adapter_run, args.step)
     elif args.command == "train":
         deployment.train(args.max_price, args.dataset, args.run, args.steps, args.resume, args.batch_size)
     elif args.command == "logs":
         deployment.logs()
     elif args.command == "fetch":
-        deployment.fetch(args.run, args.out or Path("outputs") / "lora" / args.run)
+        deployment.fetch(args.run, args.out or Path("outputs") / "lora" / args.run, args.step)
+    elif args.command == "curves":
+        deployment.curves(args.out or Path("outputs") / "lora" / args.run)
     elif args.command == "down":
         deployment.down(args.destroy)
     else:
