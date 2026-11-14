@@ -15,6 +15,7 @@ LoRA training on the same instance (see docs/LORA.md):
     uv run cloud/deploy.py logs      GPU memory and the live training log
     uv run cloud/deploy.py fetch     download the trained adapter; do this before `down --destroy`
     uv run cloud/deploy.py up --adapter outputs/lora/nexarm_lora/pretrained_model   serve with the adapter
+    uv run cloud/deploy.py up --adapter-run nexarm_lora    the same for a run still on the instance
 
 `up` costs money. It ends by holding an SSH tunnel open: the API is then at
 http://127.0.0.1:8000 until Ctrl+C. Ctrl+C only closes the tunnel, `down` stops the billing.
@@ -299,27 +300,34 @@ class Deployment:
             stdin=hf_token.encode() + b"\n",
         )
 
-    def up(self, max_price: float, local_port: int, redeploy: bool, adapter: Path | None):
+    def up(self, max_price: float, local_port: int, redeploy: bool, adapter: Path | None, run: str | None):
+        if run is not None and not re.fullmatch(r"[\w.-]+", run):
+            fail(f"run name '{run}' may only contain letters, digits, '.', '_', '-'")
         if adapter is not None and not (adapter / "adapter_config.json").is_file():
             fail(f"{adapter} is not an adapter directory (no adapter_config.json)")
         if adapter is not None and not re.fullmatch(r"[\w.-]+", adapter.name):
             fail(f"adapter directory name '{adapter.name}' may only contain letters, digits, '.', '_', '-'")
         instance = self.connect(max_price)
         try:
-            self.serve(instance, local_port, redeploy, adapter)
+            self.serve(instance, local_port, redeploy, adapter, run)
         except BaseException:
             print(
                 f"\nInstance {instance['id']} is still running and billed. Run `deploy.py down` to stop it."
             )
             raise
 
-    def serve(self, instance: dict, local_port: int, redeploy: bool, adapter: Path | None):
+    def serve(self, instance: dict, local_port: int, redeploy: bool, adapter: Path | None, run: str | None):
         if self.ssh("tmux has-session -t train", check=False, quiet=True) == 0:
             fail(
                 "a training runs on the instance; the server would take its GPU memory. See `deploy.py logs`."
             )
         running = self.ssh("curl -fs http://127.0.0.1:8000/health", check=False, quiet=True) == 0
-        if adapter is not None:
+        if run is not None:  # an adapter trained on this instance, no upload needed
+            remote = f"/workspace/lerobot/outputs/{run}/checkpoints/last/pretrained_model"
+            if self.ssh(f"test -d {remote}", check=False, quiet=True) != 0:
+                fail(f"run '{run}' has no saved checkpoint on the instance")
+            self.setup(f"SERVER_ARGS='--adapter {remote}'")
+        elif adapter is not None:
             self.upload_dir(adapter, "/workspace/adapters")
             self.setup(f"SERVER_ARGS='--adapter /workspace/adapters/{adapter.name}'")
         elif running and not redeploy:
@@ -428,6 +436,7 @@ def main():
     parser.add_argument("--redeploy", action="store_true", help="re-upload server.py and rerun the setup")
     parser.add_argument("--destroy", action="store_true", help="with down: delete the instance and its disk")
     parser.add_argument("--adapter", type=Path, help="with up: local adapter directory to serve")
+    parser.add_argument("--adapter-run", help="with up: serve the adapter of this run on the instance")
     parser.add_argument("--dataset", type=Path, help="with train: local LeRobot dataset directory")
     parser.add_argument("--run", default="nexarm_lora", help="training run name (default nexarm_lora)")
     parser.add_argument("--steps", type=int, help="with train: microsteps instead of the recipe's 10000")
@@ -439,7 +448,7 @@ def main():
         parser.error("train needs --dataset")
     deployment = Deployment()
     if args.command == "up":
-        deployment.up(args.max_price, args.port, args.redeploy, args.adapter)
+        deployment.up(args.max_price, args.port, args.redeploy, args.adapter, args.adapter_run)
     elif args.command == "train":
         deployment.train(args.max_price, args.dataset, args.run, args.steps, args.resume, args.batch_size)
     elif args.command == "logs":
