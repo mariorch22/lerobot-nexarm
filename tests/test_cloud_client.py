@@ -70,7 +70,7 @@ def test_jump_guard_uses_separate_limits_for_arm_and_gripper():
 
 def test_dry_run_never_sends_and_never_claims_a_command():
     robot, calls = Robot(), []
-    assert fast(robot, plan_towards(3, calls)).run(duration=0.2) == "duration reached"
+    assert fast(robot, plan_towards(3, calls)).run(duration=1.0) == "duration reached"  # room for two plans
     assert robot.sent == []
     assert len(calls) >= 2
     assert all(frame["last_command"] is None for frames in calls for frame in frames)

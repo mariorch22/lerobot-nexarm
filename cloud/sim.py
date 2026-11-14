@@ -1,18 +1,16 @@
 """A simulated NexArm follower in MuJoCo, as a stand-in robot for cloud/client.py.
 
 It tests the control loop with moving images and real physics. It does not show whether
-the model solves the task on the real arm: the images are rendered, and the joint zero
-is an assumption (see ASSUMPTIONS below).
+a model solves the task on the real arm: the images are rendered.
 
 The arm model is not part of this repo. Clone https://github.com/khanhthanhdev/lerobot-nexarm
 (with `git lfs pull --include "sim/assets/**"`) and pass its sim/description/mjcf/scene.xml.
 
-ASSUMPTIONS. They are guesses that place the arm inside the value range the SO-101
-checkpoint was trained on (its dataset_statistics.json); nothing here is measured:
-- shoulder_lift is 90 with the upper arm vertical and grows when it leans forward.
-- elbow_flex is 90 with the forearm at a right angle and reaches 180 fully stretched.
-- shoulder_pan, wrist_flex and wrist_roll are 0 in the CAD home pose, directions as in the model.
-- Gripper 0 is closed and 54 is fully open.
+Units follow the calibration used for the recordings of 13.11.2026: 0 degrees is Hiwonder's
+home pose (upper arm vertical, forearm horizontal), gripper 0 is open and 100 is closed.
+Checked by replaying a recorded episode next to its video: the poses agree once elbow_flex
+runs opposite to the model's joint. The directions of shoulder_pan and wrist_roll were not
+checked. The SO-101 checkpoint expects other values (see docs/STAND.md).
 """
 
 import math
@@ -34,10 +32,9 @@ JOINTS = [
     "right_jaw_slide_joint",
 ]
 JAW_OPEN = 0.0255  # metres of jaw travel when fully open
-GRIPPER_OPEN = 54.0  # gripper value when fully open
-SIGN = [1, -1, -1, 1, 1]  # model units -> direction of the MuJoCo joint
-OFFSET = [0.0, 90.0, 90.0, 0.0, 0.0]  # model units in the CAD home pose
-START = [0.0, 120.0, 110.0, 60.0, 0.0, 40.0]  # leaning over the table, gripper mostly open
+SIGN = [1, 1, -1, 1, 1]  # our degrees -> direction of the MuJoCo joint
+OFFSET = [0.0, 0.0, 0.0, 0.0, 0.0]  # our degrees in the CAD home pose
+START = [0.0, 10.0, -15.0, 15.0, 0.0, 0.0]  # like the start of a recorded episode, gripper open
 HEIGHT, WIDTH = 480, 640
 
 
@@ -91,13 +88,13 @@ class MujocoRobot:
     def to_sim(self, values: list[float]) -> np.ndarray:
         """Model units -> radians and jaw travel, clipped to the joint limits."""
         targets = [math.radians(s * (v - o)) for v, s, o in zip(values[:5], SIGN, OFFSET, strict=True)]
-        targets.append(values[5] / GRIPPER_OPEN * JAW_OPEN)
+        targets.append((1 - values[5] / 100) * JAW_OPEN)
         return np.clip(targets, self.limits[:, 0], self.limits[:, 1])
 
     def from_sim(self, positions) -> list[float]:
         """Radians and jaw travel -> model units."""
         values = [s * math.degrees(p) + o for p, s, o in zip(positions[:5], SIGN, OFFSET, strict=True)]
-        return [*values, float(positions[5]) / JAW_OPEN * GRIPPER_OPEN]
+        return [*values, (1 - float(positions[5]) / JAW_OPEN) * 100]
 
     def connect(self):
         self.renderer = mujoco.Renderer(self.model, HEIGHT, WIDTH)

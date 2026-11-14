@@ -150,6 +150,12 @@ stammt aus `github.com/khanhthanhdev/lerobot-nexarm` und liegt uneingecheckt in
   streckte sich in vier Plänen flach nach vorn auf den Tisch und fuhr nicht zu den Boxen.
   Die Verschiebung ist geraten; welche Pose bei BFL welchem Winkel entspricht, ist
   unbekannt. Weiteres Raten an Vorzeichen bringt wenig.
+- Nachspielen einer echten Episode (Episode 2 des 20er-Satzes) in der Simulation, Bild
+  neben Bild mit dem Video: Mit der unveränderten Zuordnung des Modells passen die Posen
+  nicht. Dreht man `elbow_flex` um, stimmen sie grob überein (Arm über der Box, Greifer
+  nach unten). `shoulder_pan` und `wrist_roll` bewegen sich in der Episode zu wenig, um
+  ihre Richtung zu prüfen. Die Simulation benutzt seitdem die Einheiten der Aufnahmen.
+- Aus denselben Bildern: Greifer 0 ist offen, bei etwa 28 hält er die kleine Box.
 - Die LeRobot-Doku sagt dazu, dass diese Werte zur Kalibrierung von BFLs eigenem Arm
   gehören und keine allgemeine SO-101-Kalibrierung sind. Vorgesehen ist ein LoRA-Training
   auf eigenen Daten mit durchgehend gleicher Kalibrierung.

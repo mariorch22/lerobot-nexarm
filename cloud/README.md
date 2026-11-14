@@ -129,9 +129,9 @@ uv run --with mujoco python cloud/client.py --task "put the small box on top of 
 
 - Die Simulation prüft die Schleife, die Sicherheitslogik und grob die Bewegungsrichtungen.
   Ob das Modell die Aufgabe am echten Arm löst, zeigt sie nicht.
-- Nullstellung und Greiferbereich der Simulation sind geraten. Sie sind so gewählt, dass
-  der Arm im Wertebereich liegt, auf dem der SO-101-Checkpoint trainiert wurde (Details
-  in `cloud/sim.py`).
+- Die Einheiten entsprechen der Kalibrierung der Aufnahmen vom 13.11.: 0° ist Hiwonders
+  Grundstellung, Greifer 0 ist offen und 100 geschlossen. Geprüft durch Nachspielen einer
+  echten Episode; die Richtungen von `shoulder_pan` und `wrist_roll` sind ungeprüft.
 - Die Simulation läuft langsamer als Echtzeit (auf dem Laptop etwa 18 Takte pro Sekunde).
   Die simulierte Zeit stimmt trotzdem: Jeder Takt rechnet 1/30 s Physik.
 - Mit `--execute` bewegt sich nur der simulierte Arm.
