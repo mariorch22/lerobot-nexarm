@@ -112,6 +112,39 @@ uv run python cloud/client.py --task "put the blue block into the bowl" --config
 Vor dem ersten `--execute`: Koordinatenlimits in der Hiwonder-Software setzen, freien
 Arbeitsbereich schaffen und eine Person an den Netzschalter stellen.
 
+## LoRA-Training auf eigenen Aufnahmen
+
+Hintergrund, Datenlage und offene Fragen stehen in `docs/LORA.md`. Die Befehle sind noch
+nicht gegen vast.ai gelaufen.
+
+```powershell
+# Probelauf: zeigt Speicherbedarf und Zeit pro Schritt, kostet wenige Minuten
+uv run cloud/deploy.py train --dataset outputs/datasets/nexarm_f3a_stack_boxes_v1 --run probe --steps 40
+uv run cloud/deploy.py logs
+
+# Volles Training nach BFLs Rezept (10 000 Mikroschritte)
+uv run cloud/deploy.py train --dataset outputs/datasets/nexarm_f3a_stack_boxes_v1
+uv run cloud/deploy.py logs          # Strg+C beendet nur das Zusehen
+
+# Ergebnis sichern, dann erst die Instanz stoppen oder löschen
+uv run cloud/deploy.py fetch
+uv run cloud/deploy.py down
+
+# Später mit dem trainierten Adapter servieren
+uv run cloud/deploy.py up --adapter outputs/lora/nexarm_lora/pretrained_model
+```
+
+- `train` mietet oder verwendet die Instanz, installiert wie `up`, startet aber keinen
+  Server, lädt das Dataset hoch und startet das Training in der tmux-Sitzung `train`. Es
+  läuft ohne offenes Terminal weiter. Log: `/workspace/train.log`.
+- `logs` zeigt die Speicherbelegung der GPU und folgt dem Log.
+- `fetch` lädt den letzten gespeicherten Stand (normal und EMA) nach `outputs/lora/<run>`.
+  Gespeichert wird alle 500 Mikroschritte und am Ende.
+- Ein abgebrochenes Training setzt `train --dataset … --resume` fort.
+- Training und Server laufen nicht gleichzeitig; beide brauchen den GPU-Speicher.
+- Die Instanz kostet auch nach dem Ende des Trainings weiter, bis `down` gelaufen ist.
+  `down --destroy` vor `fetch` löscht das Ergebnis.
+
 ## Ohne Arm: simulierter NexArm in MuJoCo
 
 `--sim` ersetzt den Arm durch ein MuJoCo-Modell. Der Client bekommt gerenderte Bilder der

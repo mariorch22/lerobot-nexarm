@@ -53,8 +53,12 @@ for key in ("camera_keys", "camera_layout", "fps", "chunk_size", "n_action_steps
 assert config["fps"] == 30
 EOF
 
-echo "== start server in tmux session 'f3a' (log: /workspace/server.log)"
 tmux kill-session -t f3a 2>/dev/null || true
+if [ "${START_SERVER:-1}" != 1 ]; then
+  echo "== setup done (server not started)"
+  exit 0
+fi
+echo "== start server in tmux session 'f3a' (log: /workspace/server.log)"
 # The server only reads local files; it does not get the HF token.
 tmux new-session -d -s f3a \
   "env -u HF_TOKEN HF_HUB_OFFLINE=1 /workspace/lerobot/.venv/bin/python /workspace/server.py ${SERVER_ARGS:-} > /workspace/server.log 2>&1"

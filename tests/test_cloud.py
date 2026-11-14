@@ -3,6 +3,7 @@
 import base64
 import importlib.util
 import io
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +38,41 @@ def test_ssh_endpoint_prefers_direct_port_and_falls_back_to_proxy():
     assert deploy.ssh_endpoint(direct) == ("1.2.3.4", 40022)
     assert deploy.ssh_endpoint(proxy) == ("ssh5.vast.ai", 12345)
     assert deploy.ssh_endpoint({"actual_status": "loading"}) is None
+
+
+def test_train_script_follows_the_recipe_and_rejects_shell_characters():
+    script = deploy.train_script("nexarm_f3a_stack_boxes_v1", "nexarm_lora", steps=40, resume=False)
+    assert "--config_path=examples/flux3/lora.json" in script
+    assert "--policy.path=models/flux-3-action-so101" in script
+    assert "--dataset.root=/workspace/data/nexarm_f3a_stack_boxes_v1" in script
+    assert "--output_dir=outputs/nexarm_lora" in script and script.rstrip().endswith("--steps=40")
+    assert "--steps" not in deploy.train_script("data", "run", steps=None, resume=False)
+
+    resumed = deploy.train_script("data", "run", steps=40, resume=True)
+    assert "--resume=true" in resumed and "train_config.json" in resumed and "--steps" not in resumed
+
+    with pytest.raises(SystemExit):
+        deploy.train_script("data; rm -rf /", "run", steps=None, resume=False)
+
+
+def test_directories_survive_the_tar_stream_used_for_uploads(tmp_path):
+    import subprocess
+    import tarfile
+
+    source = tmp_path / "dataset"
+    (source / "meta").mkdir(parents=True)
+    (source / "meta" / "info.json").write_text("{}")
+    (source / "data.bin").write_bytes(bytes(range(256)) * 100)
+    # The same writer deploy.upload_dir uses, into a local process instead of ssh.
+    unpack = "import sys, tarfile; tarfile.open(fileobj=sys.stdin.buffer, mode='r|')"
+    unpack += ".extractall(sys.argv[1], filter='data')"
+    reader = subprocess.Popen([sys.executable, "-c", unpack, str(tmp_path / "copy")], stdin=subprocess.PIPE)
+    with tarfile.open(fileobj=reader.stdin, mode="w|") as tar:
+        tar.add(source, arcname=source.name)
+    reader.stdin.close()
+    assert reader.wait() == 0
+    assert (tmp_path / "copy" / "dataset" / "data.bin").read_bytes() == (source / "data.bin").read_bytes()
+    assert (tmp_path / "copy" / "dataset" / "meta" / "info.json").read_text() == "{}"
 
 
 def jpeg(color) -> str:
