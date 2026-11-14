@@ -48,6 +48,10 @@ def test_train_script_follows_the_recipe_and_rejects_shell_characters():
     assert "--output_dir=outputs/nexarm_lora" in script and script.rstrip().endswith("--steps=40")
     assert "--steps" not in deploy.train_script("data", "run", steps=None, resume=False)
 
+    small = deploy.train_script("data", "run", steps=None, resume=False, batch_size=1)
+    assert "--batch_size=1" in small and "--accelerator.gradient_accumulation.steps=8" in small
+    assert "--steps=20000" in small and "--save_freq=1000" in small  # same samples, divisible by 8
+
     resumed = deploy.train_script("data", "run", steps=40, resume=True)
     assert "--resume=true" in resumed and "train_config.json" in resumed and "--steps" not in resumed
 

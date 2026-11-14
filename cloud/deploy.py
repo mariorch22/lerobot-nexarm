@@ -83,8 +83,14 @@ def describe(instance: dict) -> str:
     )
 
 
-def train_script(dataset: str, run: str, steps: int | None, resume: bool) -> str:
-    """Shell script for the instance: BFL's LoRA recipe on a local dataset, or resuming a run."""
+def train_script(dataset: str, run: str, steps: int | None, resume: bool, batch_size: int = 2) -> str:
+    """Shell script for the instance: BFL's LoRA recipe on a local dataset, or resuming a run.
+
+    The recipe uses batch 2 with accumulation 4 and 10000 microsteps, which does not fit into
+    32 GB. Batch 1 with accumulation 8 and 20000 microsteps is the same training in smaller bites.
+    """
+    if batch_size not in (1, 2):
+        fail("--batch-size must be 1 or 2")
     for name in (dataset, run):
         if not re.fullmatch(r"[\w.-]+", name):
             fail(f"'{name}' may only contain letters, digits, '.', '_' and '-'")
@@ -104,6 +110,15 @@ def train_script(dataset: str, run: str, steps: int | None, resume: bool) -> str
             f"--dataset.root=/workspace/data/{dataset}",
             f"--output_dir=outputs/{run}",
         ]
+        if batch_size == 1:
+            # save_freq and eval_steps must stay divisible by the accumulation.
+            arguments += [
+                "--batch_size=1",
+                "--accelerator.gradient_accumulation.steps=8",
+                "--save_freq=1000",
+                "--eval_steps=1000",
+            ]
+            steps = 20000 if steps is None else steps
         if steps is not None:
             arguments.append(f"--steps={steps}")
     lines = [
@@ -111,6 +126,7 @@ def train_script(dataset: str, run: str, steps: int | None, resume: bool) -> str
         "cd /workspace/lerobot",
         "source .venv/bin/activate",
         "export HF_HUB_OFFLINE=1  # everything needed is already on the disk",
+        "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # less memory lost to fragmentation",
         "python -m lerobot.scripts.lerobot_train \\",
         *[f"  {argument} \\" for argument in arguments[:-1]],
         f"  {arguments[-1]}",
@@ -335,10 +351,12 @@ class Deployment:
         finally:
             tunnel.terminate()
 
-    def train(self, max_price: float, dataset: Path, run: str, steps: int | None, resume: bool):
+    def train(
+        self, max_price: float, dataset: Path, run: str, steps: int | None, resume: bool, batch_size: int
+    ):
         if not (dataset / "meta" / "info.json").is_file():
             fail(f"{dataset} is not a LeRobot dataset (no meta/info.json)")
-        script = train_script(dataset.name, run, steps, resume)
+        script = train_script(dataset.name, run, steps, resume, batch_size)
         instance = self.connect(max_price)
         try:
             if self.ssh("tmux has-session -t train", check=False, quiet=True) == 0:
@@ -413,6 +431,7 @@ def main():
     parser.add_argument("--dataset", type=Path, help="with train: local LeRobot dataset directory")
     parser.add_argument("--run", default="nexarm_lora", help="training run name (default nexarm_lora)")
     parser.add_argument("--steps", type=int, help="with train: microsteps instead of the recipe's 10000")
+    parser.add_argument("--batch-size", type=int, default=2, help="with train: 1 fits into 32 GB (default 2)")
     parser.add_argument("--resume", action="store_true", help="with train: continue an existing run")
     parser.add_argument("--out", type=Path, help="with fetch: target (default outputs/lora/<run>)")
     args = parser.parse_args()
@@ -422,7 +441,7 @@ def main():
     if args.command == "up":
         deployment.up(args.max_price, args.port, args.redeploy, args.adapter)
     elif args.command == "train":
-        deployment.train(args.max_price, args.dataset, args.run, args.steps, args.resume)
+        deployment.train(args.max_price, args.dataset, args.run, args.steps, args.resume, args.batch_size)
     elif args.command == "logs":
         deployment.logs()
     elif args.command == "fetch":
