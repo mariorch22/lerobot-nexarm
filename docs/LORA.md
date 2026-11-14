@@ -22,7 +22,7 @@ Gelenke liegen weit außerhalb des Bereichs, den der Checkpoint kennt.
 | Aufgabentext pro Episode | erfüllt („put the small box on top of the big box") |
 | Kameras `observation.images.scene` und `observation.images.wrist` | erfüllt, keine `rename_map` nötig |
 | Durchgehend dieselbe Kalibrierung, auch später bei der Inferenz | erfüllt für die Aufnahmen; die Datei liegt bei den Aufnahmen, nicht im Repo |
-| Ein Dataset | offen: es sind vier einzelne (3 + 3 + 3 + 20 Episoden) |
+| Ein Dataset | erfüllt mit dem bereinigten Satz, siehe unten |
 
 ## Die Statistik des Checkpoints bleibt fest
 
@@ -68,19 +68,34 @@ BFLs eigene Daten liegen damit etwa zwischen −1 und 1. Unsere 29 Episoden erge
 3. **Mehr Daten.** Mehr Episoden derselben Aufgabe mit unveränderter Kalibrierung und
    Kameraposition sind der sicherste Hebel.
 
-## Vor dem Training zu erledigen
+## Das Trainings-Dataset
 
-- Die vier Datasets zu einem zusammenführen. `lerobot-edit-dataset` ist installiert; die
-  genaue Syntax ist noch nicht geprüft.
-- Episode 16 des 20er-Satzes entfernen oder die Frames 156/157 herausnehmen (Lesefehler,
-  alle Gelenke springen in einem Takt).
-- Die neun Episoden der drei kleinen Sätze ansehen. Sie enden nach knapp 20 s, vermutlich
-  am Zeitlimit, und sind womöglich nicht zu Ende geführt.
-- Die Kalibrierdateien ins Repo oder an einen festen Ort legen. Sie gehören ab jetzt zum
-  Modell.
-- Beachten: Die Voreinstellung hält die letzten 20 % der Episoden zur Auswertung zurück.
-  Bei 28 Episoden bleiben etwa 22 zum Training.
+`outputs/datasets/nexarm_f3a_stack_boxes_v1` (nicht eingecheckt, 265 MB): 18 Episoden,
+9 790 Frames, 5,4 Minuten. Gebaut mit `lerobot-edit-dataset` aus dem 20er-Satz vom
+13.11.2026 (`nexarm_f3a_stack_boxes_20261113_170045`), ohne zwei Episoden:
 
+- Episode 0: 40 s bis zum Zeitlimit, Follower springt am Anfang 34° auf die Leader-Stellung.
+- Episode 16: Lesefehler, alle Gelenke springen in drei Frames.
+
+In allen 18 Episoden liegt die kleine Box am Ende auf der großen (Stichprobe am ersten und
+letzten Bild der Szenenkamera). Geprüft gegen das Original: Zustände und Befehle sind
+identisch, die Videobilder stimmen an Anfang, Mitte und Ende von fünf Episoden überein.
+
+Daneben liegt `nexarm_f3a_stack_boxes_v1.calibration` mit `follower.json`, `leader.json`
+und der `record.yaml` der Aufnahme. Diese Kalibrierung gehört ab jetzt zum Modell.
+
+Nicht verwendet: die neun Episoden der drei kleinen Sätze (andere Kameraposition, anderes
+Objekt, Person oder Hand im Bild, alle am 20-s-Limit beendet).
+
+Bekannte Schwächen der Daten:
+
+- 24 bis 35 % der Bilder der Szenenkamera und 21 bis 26 % der Handkamera sind
+  Wiederholungen; die Kameras liefern effektiv 20 bis 23 Bilder pro Sekunde.
+- Die Zeitstempel sind nominal. Ob die Aufnahmeschleife wirklich 30 Hz hielt, ist aus den
+  Dateien nicht abzulesen.
+- Die Episoden 15 bis 17 (alt 17 bis 19) enden, während der Greifer noch an der Box ist.
+- Die Voreinstellung hält die letzten 20 % der Episoden zur Auswertung zurück. Es bleiben
+  etwa 14 zum Training.
 ## Training
 
 Auf der gemieteten Instanz liegen LeRobot, Modell und Encoder schon so, wie die Anleitung
@@ -94,7 +109,7 @@ python -m lerobot.scripts.lerobot_train \
   --policy.path=models/flux-3-action-so101 --policy.device=cuda \
   --policy.video_vae_id=models/flux-3-action-base/video_vae.safetensors \
   --policy.text_encoder_id=models/flux-3-action-base/text_encoder \
-  --dataset.repo_id=local/nexarm_f3a_stack_boxes --dataset.root=/workspace/data/nexarm_f3a_stack_boxes \
+  --dataset.repo_id=local/nexarm_f3a_stack_boxes_v1 --dataset.root=/workspace/data/nexarm_f3a_stack_boxes_v1 \
   --output_dir=outputs/nexarm_lora
 ```
 
