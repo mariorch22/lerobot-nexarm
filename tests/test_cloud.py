@@ -60,7 +60,7 @@ def test_train_script_follows_the_recipe_and_rejects_shell_characters():
 
 
 def test_training_table_condenses_the_log_and_names_checkpoints():
-    line = "INFO 11:13:19 ot_train.py:894 step:{} smpl:20 loss:{} grdn:3.6 lr:1.0e-04 video_mse:0.1 action_mse:{}"
+    line = "INFO 11:13:19 ot_train.py:894 step:{} smpl:20 loss:{} grdn:3.6 video_mse:0.1 action_mse:{}"
     log = "\n".join(line.format(step, 1 / step, 2 / step) for step in range(20, 2020, 20))
     log += "\nINFO ot_train.py:900 Eval loss on held-out episodes: 0.31\nTraining: 100%|###| 2000/2000"
     table = deploy.training_table(log, rows=10).splitlines()
