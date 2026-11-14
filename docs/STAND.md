@@ -121,7 +121,26 @@ stammt aus `github.com/khanhthanhdev/lerobot-nexarm` und liegt uneingecheckt in
 
 - Gegen den lokalen Mock-Server gelaufen: Der Client bekommt gerenderte Bilder, der Arm
   hält seine Stellung, ein Video wird geschrieben. Etwa 18 Takte pro Sekunde in Echtzeit.
-- Gegen das echte Modell noch nicht gelaufen, weil die Instanz gestoppt war.
+- Gegen das echte Modell gelaufen: Der Arm fuhr nicht zu den Boxen, sondern hob
+  `shoulder_lift` Plan für Plan an, bis die Sprungprüfung in Plan 4 abbrach.
+- Ursache ist sehr wahrscheinlich die Nullstellung. Die Statistik im Checkpoint
+  (`dataset_statistics.json`) zeigt, in welchem Bereich das Modell trainiert wurde
+  (1. bis 99. Perzentil, in Grad):
+
+  | Gelenk | von | bis |
+  | --- | --- | --- |
+  | `shoulder_pan` | −92 | 54 |
+  | `shoulder_lift` | 85 | 184 |
+  | `elbow_flex` | 61 | 179 |
+  | `wrist_flex` | −24 | 81 |
+  | `wrist_roll` | −125 | 60 |
+  | `gripper` | 0,5 | 54 |
+
+  Die Simulation startete mit `shoulder_lift` −1° und `elbow_flex` 18°, also weit außerhalb.
+  Auch die Aufnahmen vom 13.11. liegen außerhalb (`shoulder_lift` −49 bis 28°).
+- Die LeRobot-Doku sagt dazu, dass diese Werte zur Kalibrierung von BFLs eigenem Arm
+  gehören und keine allgemeine SO-101-Kalibrierung sind. Vorgesehen ist ein LoRA-Training
+  auf eigenen Daten mit durchgehend gleicher Kalibrierung.
 - Annahmen: 0° ist die CAD-Grundstellung, Greifer 100 ist offen.
 - Das fremde Repo nennt für den Follower-Greifer 1195 als offen und 2833 als geschlossen.
   Stimmt das, braucht der echte Greifer `drive_mode` 1, damit 100 wie beim SO-101 offen
