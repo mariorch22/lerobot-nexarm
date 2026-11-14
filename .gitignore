@@ -18,3 +18,4 @@ cloud/outputs/
 cloud/models/
 cloud/.env.*
 !cloud/.env.example
+third_party/

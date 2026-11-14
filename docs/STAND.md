@@ -99,7 +99,33 @@ Hiwonder-Fork, nicht mit diesem Plugin.
   3445, Greifer offen 2776 statt 2833. Er folgt mit etwa 3 Takten Verzögerung.
 - Der Greifer geht in dieser Episode nicht unter 1238.
 
-Weitere 20 Aufnahmen existieren, liegen aber noch nicht im Workspace.
+### Weitere Aufnahmen (13.11.2026, nachmittags)
+
+Ordner `C:\Users\mario\robot\lerobot-20261114T070646Z-1-001`: vier Datasets mit zusammen
+29 Episoden derselben Aufgabe, davon ein Satz mit 20 Episoden (381 s).
+
+- Die Gelenkwerte sind jetzt Grad und Greifer 0 bis 100, exakt nach der Formel des Plugins.
+- Leader und Bediener sind nicht mehr im Bild.
+- Die Kalibrierdatei, mit der aufgenommen wurde, liegt nicht im Ordner. Nullpunkte und
+  Vorzeichen der Aufnahmen sind deshalb unbekannt.
+- Der Greifer ist exakt auf 1195 bis 2833 abgebildet, vermutlich von Hand eingetragen.
+- Episode 16 des 20er-Satzes enthält bei Frame 156/157 einen Lesefehler: Alle Gelenke
+  springen in einem Takt.
+- 22 bis 31 % der Kamerabilder sind Wiederholungen.
+
+### Simulierter Arm in MuJoCo (14.11.2026)
+
+`cloud/sim.py` ersetzt den Arm im Client durch ein MuJoCo-Modell (`--sim`). Das Modell
+stammt aus `github.com/khanhthanhdev/lerobot-nexarm` und liegt uneingecheckt in
+`third_party/`.
+
+- Gegen den lokalen Mock-Server gelaufen: Der Client bekommt gerenderte Bilder, der Arm
+  hält seine Stellung, ein Video wird geschrieben. Etwa 18 Takte pro Sekunde in Echtzeit.
+- Gegen das echte Modell noch nicht gelaufen, weil die Instanz gestoppt war.
+- Annahmen: 0° ist die CAD-Grundstellung, Greifer 100 ist offen.
+- Das fremde Repo nennt für den Follower-Greifer 1195 als offen und 2833 als geschlossen.
+  Stimmt das, braucht der echte Greifer `drive_mode` 1, damit 100 wie beim SO-101 offen
+  bedeutet. Das ist am Arm zu prüfen.
 
 ## Was am echten Arm gelaufen ist
 
@@ -150,9 +176,9 @@ Die ursprüngliche Planung im Workspace-Ordner ist an diesen Stellen überholt:
    einer Person am Netzschalter.
 4. Ohne Arm möglich: die Aufnahmen durch das Modell schicken und die Pläne mit den
    Befehlen des Menschen vergleichen, sobald die 20 Runs da sind.
-5. Idee für die Zeit ohne Arm: den NexArm in MuJoCo steuern. Ein Modell von Hiwonder soll
-   es geben, im Workspace liegt es noch nicht. Das würde die Schleife und die Vorzeichen
-   prüfen, aber nicht, ob das Modell die Aufgabe löst.
+5. Ohne Arm möglich: den Client mit `--sim` gegen das echte Modell laufen lassen und das
+   Video ansehen. Das prüft die Schleife und grob die Richtungen, aber nicht, ob das
+   Modell die Aufgabe löst.
 
 ## Kosten im Blick behalten
 

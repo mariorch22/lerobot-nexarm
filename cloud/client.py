@@ -6,6 +6,7 @@
 
 Without --execute nothing is sent to the arm: plans are only requested, checked and logged.
 --fake-robot needs no arm and no cameras; it tests the server and the tunnel end to end.
+--sim SCENE.xml drives a simulated NexArm in MuJoCo instead (see cloud/sim.py).
 
 Loop: observe -> ask the server for 32 commands -> check the first one -> send them at 30 Hz
 while recording every tick -> repeat with the last 8 ticks as history. While the server is
@@ -195,6 +196,8 @@ def main():
     parser.add_argument("--task", required=True, help="English instruction for the model")
     parser.add_argument("--config", type=Path, help="LeRobot YAML with the robot section")
     parser.add_argument("--fake-robot", action="store_true", help="no arm, no cameras")
+    parser.add_argument("--sim", type=Path, help="MuJoCo scene.xml of the NexArm model (see cloud/sim.py)")
+    parser.add_argument("--video", type=Path, help="with --sim: save scene and wrist view as MP4")
     parser.add_argument("--execute", action="store_true", help="really send commands to the arm")
     parser.add_argument("--url", default="http://127.0.0.1:8000")
     parser.add_argument("--duration", type=float, default=30.0, help="seconds (default 30)")
@@ -203,10 +206,15 @@ def main():
     parser.add_argument("--gripper-jump", type=float, default=30.0, help="percent points (default 30)")
     parser.add_argument("--log", type=Path, default=Path("outputs/cloud_client.jsonl"))
     args = parser.parse_args()
-    if args.fake_robot == (args.config is not None):
-        parser.error("give either --config or --fake-robot")
+    if (args.config is not None) + args.fake_robot + (args.sim is not None) != 1:
+        parser.error("give exactly one of --config, --fake-robot or --sim")
 
-    robot = FakeRobot() if args.fake_robot else load_follower(args.config)
+    if args.sim:
+        from sim import MujocoRobot  # needs mujoco: uv run --with mujoco python cloud/client.py ...
+
+        robot = MujocoRobot(args.sim, args.video)
+    else:
+        robot = FakeRobot() if args.fake_robot else load_follower(args.config)
     args.log.parent.mkdir(parents=True, exist_ok=True)
     client = Client(
         robot,

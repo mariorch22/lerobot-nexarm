@@ -112,6 +112,29 @@ uv run python cloud/client.py --task "put the blue block into the bowl" --config
 Vor dem ersten `--execute`: Koordinatenlimits in der Hiwonder-Software setzen, freien
 Arbeitsbereich schaffen und eine Person an den Netzschalter stellen.
 
+## Ohne Arm: simulierter NexArm in MuJoCo
+
+`--sim` ersetzt den Arm durch ein MuJoCo-Modell. Der Client bekommt gerenderte Bilder der
+Szenen- und Handkamera und Gelenkwerte aus der Physik; auf dem Tisch stehen eine kleine und
+eine große Box. Das Armmodell stammt aus einem fremden Repo und wird nicht mit eingecheckt:
+
+```powershell
+git clone --depth 1 https://github.com/khanhthanhdev/lerobot-nexarm.git third_party/khanhthanhdev-lerobot-nexarm
+git -C third_party/khanhthanhdev-lerobot-nexarm lfs pull --include "sim/assets/**"
+
+uv run --with mujoco python cloud/client.py --task "put the small box on top of the big box" `
+  --sim third_party/khanhthanhdev-lerobot-nexarm/sim/description/mjcf/scene.xml `
+  --video outputs/sim.mp4 --execute
+```
+
+- Die Simulation prüft die Schleife, die Sicherheitslogik und grob die Bewegungsrichtungen.
+  Ob das Modell die Aufgabe am echten Arm löst, zeigt sie nicht.
+- Zwei Annahmen sind nicht am Arm gemessen: 0° ist die CAD-Grundstellung des Modells mit
+  dessen Drehrichtungen, und Greifer 100 bedeutet offen.
+- Die Simulation läuft langsamer als Echtzeit (auf dem Laptop etwa 18 Takte pro Sekunde).
+  Die simulierte Zeit stimmt trotzdem: Jeder Takt rechnet 1/30 s Physik.
+- Mit `--execute` bewegt sich nur der simulierte Arm.
+
 ## Lokal ohne GPU testen
 
 ```powershell
