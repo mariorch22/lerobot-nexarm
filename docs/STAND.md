@@ -106,9 +106,16 @@ Ordner `C:\Users\mario\robot\lerobot-20261114T070646Z-1-001`: vier Datasets mit 
 
 - Die Gelenkwerte sind jetzt Grad und Greifer 0 bis 100, exakt nach der Formel des Plugins.
 - Leader und Bediener sind nicht mehr im Bild.
-- Die Kalibrierdatei, mit der aufgenommen wurde, liegt nicht im Ordner. Nullpunkte und
-  Vorzeichen der Aufnahmen sind deshalb unbekannt.
-- Der Greifer ist exakt auf 1195 bis 2833 abgebildet, vermutlich von Hand eingetragen.
+- Aufgenommen wurde mit diesem Plugin. Konfiguration und Kalibrierung liegen seit dem
+  14.11. unter `lerobot\env.Marius-…\env.Marius\nexarm-f3a\` im selben Ordner.
+- Die Kalibrierung des Followers ist gültig und passt exakt zu den Aufnahmen. Die
+  Nullpunkte liegen 7 bis 19 Ticks neben der Servomitte 2048, also praktisch in Hiwonders
+  Grundstellung. Alle `drive_mode` stehen auf 0, Vorzeichen wurden nicht angepasst.
+- Der Greifer ist auf 1195 bis 2833 abgebildet. Der `wrist_roll`-Bereich (1008 bis 3147)
+  enthält keinen Encodersprung.
+- Wertebereich der 29 Episoden (1. bis 99. Perzentil): `shoulder_lift` −48 bis 20°,
+  `elbow_flex` −47 bis 56°, Greifer 0 bis 97. Der Checkpoint wurde auf 85 bis 184°, 61 bis
+  179° und Greifer 0,5 bis 54 trainiert.
 - Episode 16 des 20er-Satzes enthält bei Frame 156/157 einen Lesefehler: Alle Gelenke
   springen in einem Takt.
 - 22 bis 31 % der Kamerabilder sind Wiederholungen.
